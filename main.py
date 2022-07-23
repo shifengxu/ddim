@@ -18,8 +18,9 @@ def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
 
     parser.add_argument(
-        "--config", type=str, required=True, help="Path to the config file"
+        "--config", type=str, default='celeba.yml', help="Path to the config file"
     )
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[1])
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
     parser.add_argument(
         "--exp", type=str, default="exp", help="Path for saving running related data."
@@ -27,7 +28,7 @@ def parse_args_and_config():
     parser.add_argument(
         "--doc",
         type=str,
-        required=True,
+        default='doc',
         help="A string for documentation purpose. "
         "Will be the name of the log folder.",
     )
@@ -43,10 +44,10 @@ def parse_args_and_config():
     parser.add_argument("--test", action="store_true", help="Whether to test the model")
     parser.add_argument(
         "--sample",
-        action="store_true",
+        action="store_true", default=True,
         help="Whether to produce samples from the model",
     )
-    parser.add_argument("--fid", action="store_true")
+    parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument(
         "--resume_training", action="store_true", help="Whether to resume training"
@@ -60,7 +61,7 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--ni",
-        action="store_true",
+        action="store_true", default=True,
         help="No interaction. Suitable for Slurm Job launcher",
     )
     parser.add_argument("--use_pretrained", action="store_true")
@@ -182,8 +183,9 @@ def parse_args_and_config():
                         sys.exit(0)
 
     # add device
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    logging.info("Using device: {}".format(device))
+    gpu_ids = args.gpu_ids
+    logging.info(f"gpu_ids: {gpu_ids}")
+    device = torch.device(f"cuda:{gpu_ids[0]}") if torch.cuda.is_available() else torch.device("cpu")
     new_config.device = device
 
     # set random seed
@@ -211,11 +213,12 @@ def dict2namespace(config):
 def main():
     args, config = parse_args_and_config()
     logging.info("Writing log file to {}".format(args.log_path))
-    logging.info("Exp instance id = {}".format(os.getpid()))
-    logging.info("Exp comment = {}".format(args.comment))
+    logging.info(f"pid : {os.getpid()}")
+    logging.info(f"cwd : {os.getcwd()}")
+    logging.info(f"args: {args}")
 
     try:
-        runner = Diffusion(args, config)
+        runner = Diffusion(args, config, device=config.device)
         if args.sample:
             runner.sample()
         elif args.test:

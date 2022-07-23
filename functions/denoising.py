@@ -7,26 +7,34 @@ def compute_alpha(beta, t):
     return a
 
 
-def generalized_steps(x, seq, model, b, **kwargs):
+def generalized_steps(x_T, seq, model, b, **kwargs):
+    """
+    Original paper: Denoising Diffusion Implicit Models. ICLR. 2021
+    :param x_T: x_T in formula; it has initial Gaussian Noise
+    :param seq:
+    :param model:
+    :param b:
+    :param kwargs:
+    :return:
+    """
+    eta = kwargs.get("eta", 0)
     with torch.no_grad():
-        n = x.size(0)
+        b_sz = x_T.size(0)
         seq_next = [-1] + list(seq[:-1])
         x0_preds = []
-        xs = [x]
+        xs = [x_T]
         for i, j in zip(reversed(seq), reversed(seq_next)):
-            t = (torch.ones(n) * i).to(x.device)
-            next_t = (torch.ones(n) * j).to(x.device)
-            at = compute_alpha(b, t.long())
-            at_next = compute_alpha(b, next_t.long())
-            xt = xs[-1].to('cuda')
-            et = model(xt, t)
-            x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+            t = (torch.ones(b_sz) * i).to(x_T.device)   # [999., 999.]
+            q = (torch.ones(b_sz) * j).to(x_T.device)   # [998., 998.]. next t; can assume as t-1
+            at = compute_alpha(b, t.long()) # alpha_t
+            aq = compute_alpha(b, q.long()) # alpha_{t-1}
+            xt = xs[-1].to(x_T.device)      # x_t
+            et = model(xt, t)               # epsilon_t
+            x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()  # formula (9)
             x0_preds.append(x0_t.to('cpu'))
-            c1 = (
-                kwargs.get("eta", 0) * ((1 - at / at_next) * (1 - at_next) / (1 - at)).sqrt()
-            )
-            c2 = ((1 - at_next) - c1 ** 2).sqrt()
-            xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x) + c2 * et
+            sigma_t = eta * ((1 - at / aq) * (1 - aq) / (1 - at)).sqrt()  # formula (16)
+            c2 = (1 - aq - sigma_t ** 2).sqrt()
+            xt_next = aq.sqrt() * x0_t + c2 * et + sigma_t * torch.randn_like(x_T)  # formula (12)
             xs.append(xt_next.to('cpu'))
 
     return xs, x0_preds
@@ -45,7 +53,7 @@ def ddpm_steps(x, seq, model, b, **kwargs):
             at = compute_alpha(betas, t.long())
             atm1 = compute_alpha(betas, next_t.long())
             beta_t = 1 - at / atm1
-            x = xs[-1].to('cuda')
+            x = xs[-1].to(x.device)
 
             output = model(x, t.float())
             e = output

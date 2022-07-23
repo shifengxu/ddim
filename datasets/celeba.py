@@ -103,7 +103,8 @@ class CelebA(VisionDataset):
         self.bbox = torch.as_tensor(self.bbox[mask].values)
         self.landmarks_align = torch.as_tensor(self.landmarks_align[mask].values)
         self.attr = torch.as_tensor(self.attr[mask].values)
-        self.attr = (self.attr + 1) // 2  # map from {-1, 1} to {0, 1}
+        # self.attr = (self.attr + 1) // 2  # map from {-1, 1} to {0, 1}
+        self.attr = torch.div(self.attr, 2, rounding_mode='floor')
 
     def _check_integrity(self):
         for (_, md5, filename) in self.file_list:

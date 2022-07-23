@@ -108,7 +108,7 @@ class Diffusion(object):
         model = Model(config)
 
         model = model.to(self.device)
-        model = torch.nn.DataParallel(model)
+        model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
 
         optimizer = get_optimizer(self.config, model.parameters())
 
@@ -130,9 +130,11 @@ class Diffusion(object):
             if self.config.model.ema:
                 ema_helper.load_state_dict(states[4])
 
+        e_cnt = self.config.training.n_epochs
         for epoch in range(start_epoch, self.config.training.n_epochs):
             data_start = time.time()
             data_time = 0
+            b_cnt = len(train_loader)
             for i, (x, y) in enumerate(train_loader):
                 n = x.size(0)
                 data_time += time.time() - data_start
@@ -146,15 +148,15 @@ class Diffusion(object):
 
                 # antithetic sampling
                 t = torch.randint(
-                    low=0, high=self.num_timesteps, size=(n // 2 + 1,)
-                ).to(self.device)
+                    low=0, high=self.num_timesteps, size=(n // 2 + 1,), device=self.device
+                )
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
                 loss = loss_registry[config.model.type](model, x, t, e, b)
 
                 tb_logger.add_scalar("loss", loss, global_step=step)
 
                 logging.info(
-                    f"step: {step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
+                    f"epoch: {epoch}/{e_cnt}, batch: {i}/{b_cnt}, step: {step}, loss: {loss.item():.4f}"
                 )
 
                 optimizer.zero_grad()
@@ -200,13 +202,11 @@ class Diffusion(object):
                 )
             else:
                 states = torch.load(
-                    os.path.join(
-                        self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth"
-                    ),
+                    os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth"),
                     map_location=self.config.device,
                 )
             model = model.to(self.device)
-            model = torch.nn.DataParallel(model)
+            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
             model.load_state_dict(states[0], strict=True)
 
             if self.config.model.ema:
@@ -228,7 +228,7 @@ class Diffusion(object):
             print("Loading checkpoint {}".format(ckpt))
             model.load_state_dict(torch.load(ckpt, map_location=self.device))
             model.to(self.device)
-            model = torch.nn.DataParallel(model)
+            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
 
         model.eval()
 
@@ -244,16 +244,25 @@ class Diffusion(object):
     def sample_fid(self, model):
         config = self.config
         img_id = len(glob.glob(f"{self.args.image_folder}/*"))
-        print(f"starting from image {img_id}")
-        total_n_samples = 50000
-        n_rounds = (total_n_samples - img_id) // config.sampling.batch_size
-
+        total_n_samples = 502
+        n_new = total_n_samples - img_id
+        logging.info(f"image_folder   : {self.args.image_folder}")
+        logging.info(f"init img_id    : {img_id}")
+        logging.info(f"total_n_samples: {total_n_samples}")
+        logging.info(f"n_new          : {n_new}")
+        if n_new <= 0:
+            logging.warning(f"Will not sample images due to n_new = {n_new}")
+            return
+        b_sz = config.sampling.batch_size
+        n_rounds = (n_new - 1) // b_sz + 1  # get the ceiling
+        logging.info(f"batch_size     : {b_sz}")
+        logging.info(f"n_rounds       : {n_rounds}")
+        logging.info(f"Generating image samples for FID evaluation")
         with torch.no_grad():
-            for _ in tqdm.tqdm(
-                range(n_rounds), desc="Generating image samples for FID evaluation."
-            ):
-                n = config.sampling.batch_size
-                x = torch.randn(
+            for r_idx in range(n_rounds):
+                logging.info(f"round: {r_idx}/{n_rounds}")
+                n = b_sz if r_idx + 1 < n_rounds else n_new - r_idx * b_sz
+                x_t = torch.randn(
                     n,
                     config.data.channels,
                     config.data.image_size,
@@ -261,13 +270,13 @@ class Diffusion(object):
                     device=self.device,
                 )
 
-                x = self.sample_image(x, model)
+                x = self.sample_image(x_t, model)
                 x = inverse_data_transform(config, x)
 
                 for i in range(n):
-                    tvu.save_image(
-                        x[i], os.path.join(self.args.image_folder, f"{img_id}.png")
-                    )
+                    img_path = os.path.join(self.args.image_folder, f"{img_id:04d}.png")
+                    logging.info(f"save file: {img_path}")
+                    tvu.save_image(x[i], img_path)
                     img_id += 1
 
     def sample_sequence(self, model):
@@ -334,11 +343,6 @@ class Diffusion(object):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
 
     def sample_image(self, x, model, last=True):
-        try:
-            skip = self.args.skip
-        except Exception:
-            skip = 1
-
         if self.args.sample_type == "generalized":
             if self.args.skip_type == "uniform":
                 skip = self.num_timesteps // self.args.timesteps

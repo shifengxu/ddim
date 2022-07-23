@@ -39,6 +39,7 @@ training:
 sampling:
     batch_size: 32
     last_only: True
+    ckpt_id: "celebA6464"
 
 optim:
     weight_decay: 0.000

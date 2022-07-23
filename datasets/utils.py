@@ -163,6 +163,16 @@ def download_file_from_google_drive(file_id, root, filename=None, md5=None):
             params = {'id': file_id, 'confirm': token}
             response = session.get(url, params=params, stream=True)
 
+        # skip the Google warning.
+        # the new URL will be like:
+        #   https://docs.google.com/uc?export=download&id=0B7EVK8r0v71pZjFTYXZWM3FlRnM&confirm=t
+        if "Google Drive can't scan this file for viruses." in response.text and \
+                'is too large for Google to scan for viruses. ' in response.text and \
+                'Would you still like to download this file?' in response.text:
+            params = {'id': file_id, 'confirm': 't'}
+            response = session.get(url, params=params, stream=True)
+
+
         _save_response_content(response, fpath)
 
 
