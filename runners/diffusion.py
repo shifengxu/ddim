@@ -7,6 +7,7 @@ import numpy as np
 import tqdm
 import torch
 import torch.utils.data as data
+import torch.backends.cudnn as cudnn
 
 from models.diffusion import Model
 from models.ema import EMAHelper
@@ -99,6 +100,14 @@ class Diffusion(object):
         args, config = self.args, self.config
         tb_logger = self.config.tb_logger
         dataset, test_dataset = get_dataset(args, config)
+        logging.info(f"dataset:")
+        logging.info(f"  root : {dataset.root}")
+        logging.info(f"  split: {dataset.split}") if hasattr(dataset, 'split') else None
+        logging.info(f"  len  : {len(dataset)}")
+        logging.info(f"data_loader:")
+        logging.info(f"  batch_size : {config.training.batch_size}")
+        logging.info(f"  shuffle    : True")
+        logging.info(f"  num_workers: {config.data.num_workers}")
         train_loader = data.DataLoader(
             dataset,
             batch_size=config.training.batch_size,
@@ -109,6 +118,10 @@ class Diffusion(object):
 
         model = model.to(self.device)
         model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+        cudnn.benchmark = True
+        logging.info(f"model: {config.model.type}")
+        logging.info(f"  model.to({self.device})")
+        logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
 
         optimizer = get_optimizer(self.config, model.parameters())
 
@@ -117,9 +130,11 @@ class Diffusion(object):
             ema_helper.register(model)
         else:
             ema_helper = None
+        logging.info(f"ema_helper: {type(ema_helper).__name__}")
 
         start_epoch, step = 0, 0
         if self.args.resume_training:
+            logging.info(f"resume_training: {self.args.log_path}")
             states = torch.load(os.path.join(self.args.log_path, "ckpt.pth"))
             model.load_state_dict(states[0])
 
@@ -127,17 +142,20 @@ class Diffusion(object):
             optimizer.load_state_dict(states[1])
             start_epoch = states[2]
             step = states[3]
+            logging.info(f"  resume optimizer  : eps={states[1]['param_groups'][0]['eps']}")
+            logging.info(f"  resume start_epoch: {start_epoch}")
+            logging.info(f"  resume step       : {step}")
             if self.config.model.ema:
                 ema_helper.load_state_dict(states[4])
+                logging.info(f"  resume ema_helper : ...")
 
         e_cnt = self.config.training.n_epochs
+        b_cnt = len(train_loader)
+        eb_cnt = e_cnt * b_cnt      # epoch * batch
+        data_start = time.time()
         for epoch in range(start_epoch, self.config.training.n_epochs):
-            data_start = time.time()
-            data_time = 0
-            b_cnt = len(train_loader)
             for i, (x, y) in enumerate(train_loader):
                 n = x.size(0)
-                data_time += time.time() - data_start
                 model.train()
                 step += 1
 
@@ -155,9 +173,9 @@ class Diffusion(object):
 
                 tb_logger.add_scalar("loss", loss, global_step=step)
 
-                logging.info(
-                    f"epoch: {epoch}/{e_cnt}, batch: {i}/{b_cnt}, step: {step}, loss: {loss.item():.4f}"
-                )
+                if i % 5 == 0 or i == b_cnt - 1:
+                    elp, eta = self.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
+                    logging.info(f"E:{epoch}/{e_cnt}, B:{i:02d}/{b_cnt}, loss:{loss.item():.4f}; elp:{elp}; eta:{eta}")
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -183,13 +201,41 @@ class Diffusion(object):
                     if self.config.model.ema:
                         states.append(ema_helper.state_dict())
 
-                    torch.save(
-                        states,
-                        os.path.join(self.args.log_path, "ckpt_{}.pth".format(step)),
-                    )
-                    torch.save(states, os.path.join(self.args.log_path, "ckpt.pth"))
+                    fpath = os.path.join(self.args.log_path, "ckpt_{}.pth".format(step))
+                    logging.info(f"save: {fpath}")
+                    torch.save(states, fpath)
+                    fpath = os.path.join(self.args.log_path, "ckpt.pth")
+                    logging.info(f"save: {fpath}")
+                    torch.save(states, fpath)
 
-                data_start = time.time()
+    @staticmethod
+    def get_time_ttl_and_eta(time_start, elapsed_iter, total_iter):
+        """
+        Get estimated total time and ETA time.
+        :param time_start:
+        :param elapsed_iter:
+        :param total_iter:
+        :return:
+        """
+        def sec_to_str(sec):
+            val = int(sec)      # seconds in int type
+            s = val % 60
+            val = val // 60     # minutes
+            m = val % 60
+            val = val // 60     # hours
+            h = val % 24
+            d = val // 24       # days
+            return f"{d}-{h:02d}:{m:02d}:{s:02d}"
+
+        elapsed_time = time.time() - time_start  # seconds elapsed
+        elp = sec_to_str(elapsed_time)
+        if elapsed_iter == 0:
+            eta = 'NA'
+        else:
+            # seconds
+            eta = elapsed_time * (total_iter - elapsed_iter) / elapsed_iter
+            eta = sec_to_str(eta)
+        return elp, eta
 
     def sample(self):
         model = Model(self.config)
@@ -233,18 +279,19 @@ class Diffusion(object):
         model.eval()
 
         if self.args.fid:
-            self.sample_fid(model)
+            self.sample_fid(model)            # Sampling from the generalized model for FID evaluation
         elif self.args.interpolation:
-            self.sample_interpolation(model)
+            self.sample_interpolation(model)  # Sampling from the model for image inpainting
         elif self.args.sequence:
-            self.sample_sequence(model)
+            self.sample_sequence(model)       # Sampling from the sequence of images that lead to the sample
         else:
             raise NotImplementedError("Sample procedeure not defined")
 
     def sample_fid(self, model):
         config = self.config
-        img_id = len(glob.glob(f"{self.args.image_folder}/*"))
-        total_n_samples = 502
+        # img_id = len(glob.glob(f"{self.args.image_folder}/*"))
+        img_id = 0
+        total_n_samples = 10
         n_new = total_n_samples - img_id
         logging.info(f"image_folder   : {self.args.image_folder}")
         logging.info(f"init img_id    : {img_id}")
@@ -262,22 +309,40 @@ class Diffusion(object):
             for r_idx in range(n_rounds):
                 logging.info(f"round: {r_idx}/{n_rounds}")
                 n = b_sz if r_idx + 1 < n_rounds else n_new - r_idx * b_sz
-                x_t = torch.randn(
-                    n,
-                    config.data.channels,
-                    config.data.image_size,
-                    config.data.image_size,
-                    device=self.device,
-                )
+                use_x0_for_xt = True
+                if use_x0_for_xt:
+                    x_t = self.gen_xt_from_x0(n, model)
+                else:
+                    x_t = torch.randn(  # normal distribution with mean 0 and variance 1
+                        n,
+                        config.data.channels,
+                        config.data.image_size,
+                        config.data.image_size,
+                        device=self.device,
+                    )
 
-                x = self.sample_image(x_t, model)
-                x = inverse_data_transform(config, x)
+                x_t_ori = x_t.clone()
+                avg_t = torch.mean(x_t, dim=0)
+                limit = 10
+                for k in range(0, limit+1):
+                    logging.info(f"k: {k}/{limit} ================")
+                    x_t = x_t_ori - avg_t * (float(k) / limit)
+                    if k == limit:
+                        x_t += 1e-9  # epsilon. make it positive
+                    x = self.sample_image(x_t, model)
+                    x = inverse_data_transform(config, x)
 
-                for i in range(n):
-                    img_path = os.path.join(self.args.image_folder, f"{img_id:04d}.png")
-                    logging.info(f"save file: {img_path}")
-                    tvu.save_image(x[i], img_path)
-                    img_id += 1
+                    for i in range(len(x)):
+                        avg = torch.mean(x_t[i])
+                        var = torch.var(x_t[i], unbiased=False)
+                        img_path = os.path.join(self.args.image_folder, f"{i:04d}_avg{avg:.4f}_var{var:.4f}.png")
+                        logging.info(f"save file: {img_path}")
+                        tvu.save_image(x[i], img_path)
+                        img_id += 1
+                    # for i
+                # for k
+            # for r_idx
+        # with
 
     def sample_sequence(self, model):
         config = self.config
@@ -341,6 +406,83 @@ class Diffusion(object):
         x = inverse_data_transform(config, torch.cat(xs, dim=0))
         for i in range(x.size(0)):
             tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
+
+    def gen_xt_from_x0(self, n, model, img_path_arr=None):
+        from PIL import Image
+        import torchvision.transforms as T
+        import torchvision.transforms.functional as F
+        cx, cy = 89, 121
+        x1 = cy - 64
+        x2 = cy + 64
+        y1 = cx - 64
+        y2 = cx + 64
+        crop = lambda img: F.crop(img, x1, y1, x2 - x1, y2 - y1)
+        config = self.config
+        transform = T.Compose([crop, T.Resize(config.data.image_size), T.ToTensor()])
+        if not img_path_arr:  # for testing
+            img_path_arr = [f"./exp/{i:06d}.jpg" for i in range(1, 11)]
+        x_arr = []
+        for img_path in img_path_arr:
+            logging.info(f"load file: {img_path}")
+            image = Image.open(img_path)
+            x = transform(image)    # shape [3, 64, 64]. value range [0, 1]
+            x = x.unsqueeze(0)      # shape [1, 3, 64, 64]
+            x_arr.append(x)
+        x0 = torch.cat(x_arr).to(self.device)
+
+        # save x0
+        for i in range(len(x0)):
+            img_path = os.path.join(self.args.image_folder, f"{i:04d}.ori.png")
+            logging.info(f"save file: {img_path}")
+            tvu.save_image(x0[i], img_path)
+
+        # apply diffusion
+        b_seq = self.betas              # beta sequence
+        m_seq = 1 - b_seq               # mean sequence. m = 1 - b
+        a_seq = m_seq.cumprod(dim=0)    # alpha sequence
+        a_t = a_seq[-1]
+        xt = torch.randn(  # normal distribution with mean 0 and variance 1
+            n,
+            config.data.channels,
+            config.data.image_size,
+            config.data.image_size,
+            device=self.device,
+        )
+        gen_by_model = True
+        if gen_by_model:
+            xt = self.gen_xt_from_x0_by_model(xt, x0, b_seq, m_seq, a_seq, model)
+        else:
+            xt = self.gen_xt_from_x0_by_formula(xt, x0, a_t)
+        return xt
+
+    @staticmethod
+    def gen_xt_from_x0_by_model(xt, x0, b_seq, m_seq, a_seq, model):
+        x = x0.clone()
+        x0_sz = len(x)      # batch size
+        seq_sz = len(b_seq) # sequence size
+        for i in range(seq_sz):
+            if i % 100 == 0:
+                logging.info(f"gen_xt_from_x0_by_model(): {i:4d}/{seq_sz}")
+            t = torch.ones(x0_sz, device=x0.device) * i  # [999., 999.]
+            et = model(x, t)  # epsilon_t
+            x = m_seq[i].sqrt() * x + ((1 - a_seq[i]).sqrt() - (m_seq[i] - a_seq[i]).sqrt()) * et
+        for i in range(len(xt)):
+            xt[i] = x[i % x0_sz]
+        # epsilon = torch.randn_like(xt, device=xt.device)
+        # xt = xt + epsilon  # if add epsilon, the generated image is messy and meaningless.
+        return xt
+
+    def gen_xt_from_x0_by_formula(self, xt, x0, a_t):
+        # interpolation between two xt
+        epsilon1 = torch.randn_like(x0[0], device=self.device)
+        epsilon2 = torch.randn_like(x0[0], device=self.device)
+        xt[0]  = a_t.sqrt() * x0[0] + (1 - a_t).sqrt() * epsilon1
+        xt[-1] = a_t.sqrt() * x0[0] + (1 - a_t).sqrt() * epsilon2
+        for i in range(1, len(xt) - 1):
+            k = float(i) / (len(xt) - 1)
+            epsilon = k * epsilon2 + (1 - k) * epsilon1
+            xt[i] = a_t.sqrt() * x0[0] + (1 - a_t).sqrt() * epsilon
+        return xt
 
     def sample_image(self, x, model, last=True):
         if self.args.sample_type == "generalized":

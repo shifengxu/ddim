@@ -17,75 +17,33 @@ torch.set_printoptions(sci_mode=False)
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
 
-    parser.add_argument(
-        "--config", type=str, default='celeba.yml', help="Path to the config file"
-    )
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[1])
+    parser.add_argument("--config", type=str, default='cifar10.yml', help="Path to the config file")
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0, 1, 2])
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
-    parser.add_argument(
-        "--exp", type=str, default="exp", help="Path for saving running related data."
-    )
-    parser.add_argument(
-        "--doc",
-        type=str,
-        default='doc',
-        help="A string for documentation purpose. "
-        "Will be the name of the log folder.",
-    )
-    parser.add_argument(
-        "--comment", type=str, default="", help="A string for experiment comment"
-    )
-    parser.add_argument(
-        "--verbose",
-        type=str,
-        default="info",
-        help="Verbose level: info | debug | warning | critical",
-    )
+    parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
+    parser.add_argument("--doc", type=str, default='doc',
+                        help="A string for documentation purpose. Will be the name of the log folder.")
+    parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
+    parser.add_argument("--verbose", type=str, default="info",
+                        help="Verbose level: info | debug | warning | critical")
     parser.add_argument("--test", action="store_true", help="Whether to test the model")
-    parser.add_argument(
-        "--sample",
-        action="store_true", default=True,
-        help="Whether to produce samples from the model",
-    )
+    parser.add_argument("--sample", action="store_true", default=False,
+                        help="Whether to produce samples from the model")
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
-    parser.add_argument(
-        "--resume_training", action="store_true", help="Whether to resume training"
-    )
-    parser.add_argument(
-        "-i",
-        "--image_folder",
-        type=str,
-        default="images",
-        help="The folder name of samples",
-    )
-    parser.add_argument(
-        "--ni",
-        action="store_true", default=True,
-        help="No interaction. Suitable for Slurm Job launcher",
-    )
+    parser.add_argument("--resume_training", action="store_true", help="Whether to resume training")
+    parser.add_argument("-i", "--image_folder", type=str, default="images",
+                        help="The folder name of samples")
+    parser.add_argument("--ni", action="store_true", default=True,
+                        help="No interaction. Suitable for Slurm Job launcher")
     parser.add_argument("--use_pretrained", action="store_true")
-    parser.add_argument(
-        "--sample_type",
-        type=str,
-        default="generalized",
-        help="sampling approach (generalized or ddpm_noisy)",
-    )
-    parser.add_argument(
-        "--skip_type",
-        type=str,
-        default="uniform",
-        help="skip according to (uniform or quadratic)",
-    )
-    parser.add_argument(
-        "--timesteps", type=int, default=1000, help="number of steps involved"
-    )
-    parser.add_argument(
-        "--eta",
-        type=float,
-        default=0.0,
-        help="eta used to control the variances of sigma",
-    )
+    parser.add_argument("--sample_type", type=str, default="generalized",
+                        help="sampling approach (generalized or ddpm_noisy)")
+    parser.add_argument("--skip_type", type=str, default="uniform",
+                        help="skip according to (uniform or quadratic)")
+    parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
+    parser.add_argument("--eta", type=float, default=0.0,
+                        help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")
 
     args = parser.parse_args()
@@ -130,7 +88,7 @@ def parse_args_and_config():
         if not isinstance(level, int):
             raise ValueError("level {} not supported".format(args.verbose))
 
-        handler1 = logging.StreamHandler()
+        handler1 = logging.StreamHandler(stream=sys.stdout)
         handler2 = logging.FileHandler(os.path.join(args.log_path, "stdout.txt"))
         formatter = logging.Formatter(
             "%(levelname)s - %(filename)s - %(asctime)s - %(message)s"
@@ -189,9 +147,13 @@ def parse_args_and_config():
     new_config.device = device
 
     # set random seed
+    logging.info(f"seed: {args.seed}")
+    logging.info(f"  torch.manual_seed({args.seed})")
+    logging.info(f"  np.random.seed({args.seed})")
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     if torch.cuda.is_available():
+        logging.info(f"  torch.cuda.manual_seed_all({args.seed})")
         torch.cuda.manual_seed_all(args.seed)
 
     torch.backends.cudnn.benchmark = True
@@ -220,10 +182,13 @@ def main():
     try:
         runner = Diffusion(args, config, device=config.device)
         if args.sample:
+            logging.info(f"sample ===================================")
             runner.sample()
         elif args.test:
+            logging.info(f"test ===================================")
             runner.test()
         else:
+            logging.info(f"train ===================================")
             runner.train()
     except Exception:
         logging.error(traceback.format_exc())

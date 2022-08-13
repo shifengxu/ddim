@@ -1,3 +1,5 @@
+import logging
+
 import torch
 
 
@@ -24,6 +26,8 @@ def generalized_steps(x_T, seq, model, b, **kwargs):
         x0_preds = []
         xs = [x_T]
         for i, j in zip(reversed(seq), reversed(seq_next)):
+            if i % 50 == 0:
+                logging.info(f"generalized_steps(): i={i}")
             t = (torch.ones(b_sz) * i).to(x_T.device)   # [999., 999.]
             q = (torch.ones(b_sz) * j).to(x_T.device)   # [998., 998.]. next t; can assume as t-1
             at = compute_alpha(b, t.long()) # alpha_t
