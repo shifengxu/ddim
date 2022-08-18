@@ -46,13 +46,13 @@ def get_dataset(args, config):
 
     if config.data.dataset == "CIFAR10":
         dataset = CIFAR10(
-            os.path.join(args.exp, "datasets", "cifar10"),
+            os.path.join(args.data_dir, "datasets", "cifar10"),
             train=True,
             download=True,
             transform=tran_transform,
         )
         test_dataset = CIFAR10(
-            os.path.join(args.exp, "datasets", "cifar10_test"),
+            os.path.join(args.data_dir, "datasets", "cifar10_test"),
             train=False,
             download=True,
             transform=test_transform,
@@ -67,7 +67,7 @@ def get_dataset(args, config):
         y2 = cx + 64
         if config.data.random_flip:
             dataset = CelebA(
-                root=os.path.join(args.exp, "datasets", "celeba"),
+                root=os.path.join(args.data_dir, "datasets", "celeba"),
                 split="train",
                 transform=transforms.Compose(
                     [
@@ -81,7 +81,7 @@ def get_dataset(args, config):
             )
         else:
             dataset = CelebA(
-                root=os.path.join(args.exp, "datasets", "celeba"),
+                root=os.path.join(args.data_dir, "datasets", "celeba"),
                 split="train",
                 transform=transforms.Compose(
                     [
@@ -94,7 +94,7 @@ def get_dataset(args, config):
             )
 
         test_dataset = CelebA(
-            root=os.path.join(args.exp, "datasets", "celeba"),
+            root=os.path.join(args.data_dir, "datasets", "celeba"),
             split="test",
             transform=transforms.Compose(
                 [
@@ -111,7 +111,7 @@ def get_dataset(args, config):
         val_folder = "{}_val".format(config.data.category)
         if config.data.random_flip:
             dataset = LSUN(
-                root=os.path.join(args.exp, "datasets", "lsun"),
+                root=os.path.join(args.data_dir, "datasets", "lsun"),
                 classes=[train_folder],
                 transform=transforms.Compose(
                     [
@@ -124,7 +124,7 @@ def get_dataset(args, config):
             )
         else:
             dataset = LSUN(
-                root=os.path.join(args.exp, "datasets", "lsun"),
+                root=os.path.join(args.data_dir, "datasets", "lsun"),
                 classes=[train_folder],
                 transform=transforms.Compose(
                     [
@@ -136,7 +136,7 @@ def get_dataset(args, config):
             )
 
         test_dataset = LSUN(
-            root=os.path.join(args.exp, "datasets", "lsun"),
+            root=os.path.join(args.data_dir, "datasets", "lsun"),
             classes=[val_folder],
             transform=transforms.Compose(
                 [
@@ -150,7 +150,7 @@ def get_dataset(args, config):
     elif config.data.dataset == "FFHQ":
         if config.data.random_flip:
             dataset = FFHQ(
-                path=os.path.join(args.exp, "datasets", "FFHQ"),
+                path=os.path.join(args.data_dir, "datasets", "FFHQ"),
                 transform=transforms.Compose(
                     [transforms.RandomHorizontalFlip(p=0.5), transforms.ToTensor()]
                 ),
@@ -158,7 +158,7 @@ def get_dataset(args, config):
             )
         else:
             dataset = FFHQ(
-                path=os.path.join(args.exp, "datasets", "FFHQ"),
+                path=os.path.join(args.data_dir, "datasets", "FFHQ"),
                 transform=transforms.ToTensor(),
                 resolution=config.data.image_size,
             )

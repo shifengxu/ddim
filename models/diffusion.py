@@ -194,7 +194,6 @@ class Model(nn.Module):
         super().__init__()
         self.config = config
         ch, out_ch, ch_mult = config.model.ch, config.model.out_ch, tuple(config.model.ch_mult)
-        num_res_blocks = config.model.num_res_blocks
         attn_resolutions = config.model.attn_resolutions
         dropout = config.model.dropout
         in_channels = config.model.in_channels
@@ -207,13 +206,14 @@ class Model(nn.Module):
         
         self.ch = ch
         self.temb_ch = self.ch*4
-        self.num_resolutions = len(ch_mult)
-        self.num_res_blocks = num_res_blocks
+        self.ch_mult_len = len(ch_mult)
+        self.num_res_blocks = config.model.num_res_blocks
         self.resolution = resolution
         self.in_channels = in_channels
 
         # timestep embedding
         self.temb = nn.Module()
+        # The "dense" below is not a property; it's just an arbitrary name.
         self.temb.dense = nn.ModuleList([
             torch.nn.Linear(self.ch,
                             self.temb_ch),
@@ -232,7 +232,7 @@ class Model(nn.Module):
         in_ch_mult = (1,)+ch_mult
         self.down = nn.ModuleList()
         block_in = None
-        for i_level in range(self.num_resolutions):
+        for i_level in range(self.ch_mult_len):
             block = nn.ModuleList()
             attn = nn.ModuleList()
             block_in = ch*in_ch_mult[i_level]
@@ -245,13 +245,15 @@ class Model(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(AttnBlock(block_in))
+            # for i_block
             down = nn.Module()
             down.block = block
             down.attn = attn
-            if i_level != self.num_resolutions-1:
+            if i_level != self.ch_mult_len-1:
                 down.downsample = Downsample(block_in, resamp_with_conv)
                 curr_res = curr_res // 2
             self.down.append(down)
+        # for i_level
 
         # middle
         self.mid = nn.Module()
@@ -267,7 +269,7 @@ class Model(nn.Module):
 
         # upsampling
         self.up = nn.ModuleList()
-        for i_level in reversed(range(self.num_resolutions)):
+        for i_level in reversed(range(self.ch_mult_len)):
             block = nn.ModuleList()
             attn = nn.ModuleList()
             block_out = ch*ch_mult[i_level]
@@ -299,23 +301,24 @@ class Model(nn.Module):
                                         padding=1)
 
     def forward(self, x, t):
-        assert x.shape[2] == x.shape[3] == self.resolution
+        assert x.shape[2] == x.shape[3] == self.resolution  # config.data.image_size
 
         # timestep embedding
-        temb = get_timestep_embedding(t, self.ch)
-        temb = self.temb.dense[0](temb)
-        temb = nonlinearity(temb)
-        temb = self.temb.dense[1](temb)
+        # self.ch: config.model.ch. Usually 128
+        temb = get_timestep_embedding(t, self.ch)   # shape [256, 128]
+        temb = self.temb.dense[0](temb)             # shape [256, 512]
+        temb = nonlinearity(temb)                   # shape [256, 512]
+        temb = self.temb.dense[1](temb)             # shape [256, 512]
 
         # downsampling
         hs = [self.conv_in(x)]
-        for i_level in range(self.num_resolutions):
+        for i_level in range(self.ch_mult_len):
             for i_block in range(self.num_res_blocks):
                 h = self.down[i_level].block[i_block](hs[-1], temb)
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
-            if i_level != self.num_resolutions-1:
+            if i_level != self.ch_mult_len-1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
 
         # middle
@@ -325,7 +328,7 @@ class Model(nn.Module):
         h = self.mid.block_2(h, temb)
 
         # upsampling
-        for i_level in reversed(range(self.num_resolutions)):
+        for i_level in reversed(range(self.ch_mult_len)):
             for i_block in range(self.num_res_blocks+1):
                 h = self.up[i_level].block[i_block](
                     torch.cat([h, hs.pop()], dim=1), temb)
@@ -339,3 +342,47 @@ class Model(nn.Module):
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
+
+
+class ModelStack(nn.Module):
+    """
+    Model stack. we put some model together to make a stack. And call each model 'brick'.
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.stack_sz = config.model.stack_size if hasattr(config.model, 'stack_size') else 5
+        self.ts_cnt = config.diffusion.num_diffusion_timesteps
+        self.model_stack = nn.ModuleList()
+        for i in range(self.stack_sz):
+            model = Model(config)
+            self.model_stack.append(model)
+        self.brick_cvg = self.ts_cnt // self.stack_sz  # brick coverage: one brick cover how many timesteps
+
+    def get_brick_idx_by_ts(self, ts):
+        """
+        Get brick index by timestep number. the index should be within self.stack_sz
+        :param ts: timestep
+        :return:  brick index
+        """
+        idx = ts // self.brick_cvg
+        if idx >= self.stack_sz:
+            idx = self.stack_sz - 1
+        return idx
+
+    def forward(self, x, t):
+        t0 = t
+        # usually, t is an array of random int. To calculate brick index, we only take the first element.
+        if hasattr(t0, '__len__') and len(t0) > 1:
+            t0 = t0[0]
+        if isinstance(t0, torch.Tensor):
+            t0 = int(t0)
+        b_idx = self.get_brick_idx_by_ts(t0)  # brick index
+        # If stack_sz is 5, and ts_cnt is 1000, then brick_cvg will be 200.
+        # Given the above condition, here is how we do:
+        #   brick 0 handles ts [1, 199);
+        #   brick 1 handles ts [200, 399);
+        #   brick 2 handles ts [400, 599);
+        #   ...
+        return self.model_stack[b_idx](x, t)
+# class ModelStack

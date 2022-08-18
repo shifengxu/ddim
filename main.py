@@ -23,6 +23,8 @@ def parse_args_and_config():
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
     parser.add_argument("--doc", type=str, default='doc',
                         help="A string for documentation purpose. Will be the name of the log folder.")
+    parser.add_argument("--data_dir", type=str, default="", help="dir of training/testing data.")
+    parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
@@ -48,103 +50,67 @@ def parse_args_and_config():
 
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)
+    if not os.path.exists(args.log_path):
+        os.makedirs(args.log_path)
 
     # parse config file
     with open(os.path.join("configs", args.config), "r") as f:
         config = yaml.safe_load(f)
-    new_config = dict2namespace(config)
 
+    new_config = dict2namespace(config)
     tb_path = os.path.join(args.exp, "tensorboard", args.doc)
 
+    # setup logger
+    logger = logging.getLogger()
+    formatter = logging.Formatter("%(levelname)s - %(filename)s - %(asctime)s - %(message)s")
+    handler1 = logging.StreamHandler(stream=sys.stdout)
+    handler1.setFormatter(formatter)
+    logger.addHandler(handler1)
+    level = getattr(logging, args.verbose.upper(), None)
+    if not isinstance(level, int):
+        raise ValueError("log level {} not supported".format(args.verbose))
+    logger.setLevel(level)
     if not args.test and not args.sample:
+        handler2 = logging.FileHandler(os.path.join(args.log_path, "stdout.txt"))
+        handler2.setFormatter(formatter)
+        logger.addHandler(handler2)
         if not args.resume_training:
-            if os.path.exists(args.log_path):
+            renew_log_dir(args, tb_path, new_config)
+
+        new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
+    elif args.sample:
+        os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
+        args.image_folder = os.path.join(args.exp, "image_samples", args.image_folder)
+        if not os.path.exists(args.image_folder):
+            os.makedirs(args.image_folder)
+        else:
+            if not (args.fid or args.interpolation):
                 overwrite = False
                 if args.ni:
                     overwrite = True
                 else:
-                    response = input("Folder already exists. Overwrite? (Y/N)")
+                    response = input(
+                        f"Image folder {args.image_folder} already exists. Overwrite? (Y/N)"
+                    )
                     if response.upper() == "Y":
                         overwrite = True
 
                 if overwrite:
-                    shutil.rmtree(args.log_path)
-                    shutil.rmtree(tb_path)
-                    os.makedirs(args.log_path)
-                    if os.path.exists(tb_path):
-                        shutil.rmtree(tb_path)
+                    shutil.rmtree(args.image_folder)
+                    os.makedirs(args.image_folder)
                 else:
-                    print("Folder exists. Program halted.")
+                    print("Output image folder exists. Program halted.")
                     sys.exit(0)
-            else:
-                os.makedirs(args.log_path)
-
-            with open(os.path.join(args.log_path, "config.yml"), "w") as f:
-                yaml.dump(new_config, f, default_flow_style=False)
-
-        new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
-        # setup logger
-        level = getattr(logging, args.verbose.upper(), None)
-        if not isinstance(level, int):
-            raise ValueError("level {} not supported".format(args.verbose))
-
-        handler1 = logging.StreamHandler(stream=sys.stdout)
-        handler2 = logging.FileHandler(os.path.join(args.log_path, "stdout.txt"))
-        formatter = logging.Formatter(
-            "%(levelname)s - %(filename)s - %(asctime)s - %(message)s"
-        )
-        handler1.setFormatter(formatter)
-        handler2.setFormatter(formatter)
-        logger = logging.getLogger()
-        logger.addHandler(handler1)
-        logger.addHandler(handler2)
-        logger.setLevel(level)
-
-    else:
-        level = getattr(logging, args.verbose.upper(), None)
-        if not isinstance(level, int):
-            raise ValueError("level {} not supported".format(args.verbose))
-
-        handler1 = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "%(levelname)s - %(filename)s - %(asctime)s - %(message)s"
-        )
-        handler1.setFormatter(formatter)
-        logger = logging.getLogger()
-        logger.addHandler(handler1)
-        logger.setLevel(level)
-
-        if args.sample:
-            os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
-            args.image_folder = os.path.join(
-                args.exp, "image_samples", args.image_folder
-            )
-            if not os.path.exists(args.image_folder):
-                os.makedirs(args.image_folder)
-            else:
-                if not (args.fid or args.interpolation):
-                    overwrite = False
-                    if args.ni:
-                        overwrite = True
-                    else:
-                        response = input(
-                            f"Image folder {args.image_folder} already exists. Overwrite? (Y/N)"
-                        )
-                        if response.upper() == "Y":
-                            overwrite = True
-
-                    if overwrite:
-                        shutil.rmtree(args.image_folder)
-                        os.makedirs(args.image_folder)
-                    else:
-                        print("Output image folder exists. Program halted.")
-                        sys.exit(0)
 
     # add device
     gpu_ids = args.gpu_ids
-    logging.info(f"gpu_ids: {gpu_ids}")
+    logging.info(f"gpu_ids : {gpu_ids}")
     device = torch.device(f"cuda:{gpu_ids[0]}") if torch.cuda.is_available() else torch.device("cpu")
     new_config.device = device
+    if not args.data_dir:
+        args.data_dir = args.exp
+    logging.info(f"data_dir: {args.data_dir}")
+    logging.info(f"ts_range: {args.ts_range}")
 
     # set random seed
     logging.info(f"seed: {args.seed}")
@@ -159,6 +125,35 @@ def parse_args_and_config():
     torch.backends.cudnn.benchmark = True
 
     return args, new_config
+
+
+def renew_log_dir(args, tb_path, new_config):
+    if os.path.exists(args.log_path):
+        overwrite = False
+        if args.ni:
+            overwrite = True
+        else:
+            response = input("Folder already exists. Overwrite? (Y/N)")
+            if response.upper() == "Y":
+                overwrite = True
+
+        if overwrite:
+            if os.path.exists(args.log_path):
+                logging.info(f"remove: {args.log_path}")
+                shutil.rmtree(args.log_path)
+            if os.path.exists(tb_path):
+                logging.info(f"remove: {tb_path}")
+                shutil.rmtree(tb_path)
+            logging.info(f"mkdir : {args.log_path}")
+            os.makedirs(args.log_path)
+        else:
+            print("Folder exists. Program halted.")
+            sys.exit(0)
+    else:
+        os.makedirs(args.log_path)
+
+    with open(os.path.join(args.log_path, "config.yml"), "w") as f:
+        yaml.dump(new_config, f, default_flow_style=False)
 
 
 def dict2namespace(config):

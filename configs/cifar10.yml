@@ -22,6 +22,7 @@ model:
     ema_rate: 0.9999
     ema: True
     resamp_with_conv: True
+    stack_size: 4
 
 diffusion:
     beta_schedule: linear
