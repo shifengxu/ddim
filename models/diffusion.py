@@ -1,3 +1,4 @@
+import logging
 import math
 import torch
 import torch.nn as nn
@@ -354,10 +355,19 @@ class ModelStack(nn.Module):
         self.stack_sz = config.model.stack_size if hasattr(config.model, 'stack_size') else 5
         self.ts_cnt = config.diffusion.num_diffusion_timesteps
         self.model_stack = nn.ModuleList()
+        self.brick_hit_counter = []  # track hit count of each brick
         for i in range(self.stack_sz):
             model = Model(config)
             self.model_stack.append(model)
+            self.brick_hit_counter.append(0)
         self.brick_cvg = self.ts_cnt // self.stack_sz  # brick coverage: one brick cover how many timesteps
+        logging.info(f"ModelStack()...")
+        logging.info(f"  stack_sz : {self.stack_sz}")
+        logging.info(f"  ts_cnt   : {self.ts_cnt}")
+        logging.info(f"  brick_cvg: {self.brick_cvg}")
+        logging.info(f"  ts 0     : -> idx {self.get_brick_idx_by_ts(0)}")
+        logging.info(f"  ts 500   : -> idx {self.get_brick_idx_by_ts(500)}")
+        logging.info(f"  ts 999   : -> idx {self.get_brick_idx_by_ts(999)}")
 
     def get_brick_idx_by_ts(self, ts):
         """
@@ -377,6 +387,8 @@ class ModelStack(nn.Module):
             t0 = t0[0]
         if isinstance(t0, torch.Tensor):
             t0 = int(t0)
+        if t0 < 0 or t0 >= self.ts_cnt:
+            raise ValueError(f"illegal ts {t0}. Should be in range [0, {self.ts_cnt})")
         b_idx = self.get_brick_idx_by_ts(t0)  # brick index
         # If stack_sz is 5, and ts_cnt is 1000, then brick_cvg will be 200.
         # Given the above condition, here is how we do:
@@ -384,5 +396,6 @@ class ModelStack(nn.Module):
         #   brick 1 handles ts [200, 399);
         #   brick 2 handles ts [400, 599);
         #   ...
+        self.brick_hit_counter[b_idx] += 1
         return self.model_stack[b_idx](x, t)
 # class ModelStack

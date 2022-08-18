@@ -9,7 +9,9 @@ import torch
 import numpy as np
 import torch.utils.tensorboard as tb
 
-from runners.diffusion import Diffusion
+from runners.diffusion_sampling import DiffusionSampling
+from runners.diffusion_training import DiffusionTraining
+from runners.diffusion_testing import DiffusionTesting
 
 torch.set_printoptions(sci_mode=False)
 
@@ -31,6 +33,8 @@ def parse_args_and_config():
     parser.add_argument("--test", action="store_true", help="Whether to test the model")
     parser.add_argument("--sample", action="store_true", default=False,
                         help="Whether to produce samples from the model")
+    parser.add_argument("--sample_ckpt_path", type=str, default='./exp/model_sampling/ckpt_E0984_B0055.pth')
+    parser.add_argument("--sample_ckpt_dir", type=str, default='.')
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", action="store_true", help="Whether to resume training")
@@ -175,15 +179,17 @@ def main():
     logging.info(f"args: {args}")
 
     try:
-        runner = Diffusion(args, config, device=config.device)
         if args.sample:
             logging.info(f"sample ===================================")
+            runner = DiffusionSampling(args, config, device=config.device)
             runner.sample()
         elif args.test:
             logging.info(f"test ===================================")
+            runner = DiffusionTesting(args, config, device=config.device)
             runner.test()
         else:
             logging.info(f"train ===================================")
+            runner = DiffusionTraining(args, config, device=config.device)
             runner.train()
     except Exception:
         logging.error(traceback.format_exc())
