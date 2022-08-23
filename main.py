@@ -13,6 +13,8 @@ from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 
+from utils import str2bool
+
 torch.set_printoptions(sci_mode=False)
 
 
@@ -22,6 +24,7 @@ def parse_args_and_config():
     parser.add_argument("--config", type=str, default='cifar10.yml', help="Path to the config file")
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0, 1, 2])
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
+    parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
     parser.add_argument("--doc", type=str, default='doc',
                         help="A string for documentation purpose. Will be the name of the log folder.")
@@ -30,14 +33,13 @@ def parse_args_and_config():
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
-    parser.add_argument("--test", action="store_true", help="Whether to test the model")
-    parser.add_argument("--sample", action="store_true", default=False,
-                        help="Whether to produce samples from the model")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/model_sampling/ckpt_E0984_B0055.pth')
+    parser.add_argument("--test", type=str2bool, default=False, help="Whether to test the model")
+    parser.add_argument("--sample", type=str2bool, default=False, help="Whether to produce samples")
     parser.add_argument("--sample_ckpt_dir", type=str, default='.')
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
-    parser.add_argument("--resume_training", action="store_true", help="Whether to resume training")
+    parser.add_argument("--resume_training", type=str2bool, default=False)
     parser.add_argument("-i", "--image_folder", type=str, default="images",
                         help="The folder name of samples")
     parser.add_argument("--ni", action="store_true", default=True,

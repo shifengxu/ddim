@@ -29,18 +29,15 @@ class DiffusionSampling(Diffusion):
             ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
         logging.info(f"load ckpt: {ckpt_path}")
         states = torch.load(ckpt_path, map_location=self.config.device)
+        if isinstance(states, dict):
+            model.load_state_dict(states['model'], strict=True)
+        else:
+            model.load_state_dict(states[0], strict=True)
         model = model.to(self.device)
         model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
         logging.info(f"model({type(model).__name__})")
         logging.info(f"  model.to({self.device})")
         logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        model.load_state_dict(states[0], strict=True)
-
-        if self.config.model.ema:
-            ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            ema_helper.register(model)
-            ema_helper.load_state_dict(states[-1])
-            ema_helper.ema(model)
         return model
 
     def model_stack_load_from_local(self, model: ModelStack):
@@ -60,12 +57,13 @@ class DiffusionSampling(Diffusion):
         for i, ckpt_path in enumerate(ckpt_path_arr):
             logging.info(f"  load ckpt {i: 2d} : {ckpt_path}")
             states = torch.load(ckpt_path, map_location=self.config.device)
-            ms[i].load_state_dict(states[0], strict=True)
-            if self.config.model.ema:
-                ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-                ema_helper.register(ms[i])
-                ema_helper.load_state_dict(states[-1])
-                ema_helper.ema(ms[i])
+            if isinstance(states, dict):
+                # This is for backward-compatibility. As previously, the states is a list ([]).
+                # And that was not convenient for adding or dropping items.
+                # Therefore, we change to use dict.
+                ms[i].load_state_dict(states['model'], strict=True)
+            else:
+                ms[i].load_state_dict(states[0], strict=True)
         # for
         model = model.to(self.device)
         model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
@@ -78,7 +76,8 @@ class DiffusionSampling(Diffusion):
         model = ModelStack(self.config)
 
         if not self.args.use_pretrained:
-            if isinstance(model, ModelStack):
+            div_conquer = True
+            if isinstance(model, ModelStack) and div_conquer:
                 model = self.model_stack_load_from_local(model)
             else:
                 model = self.model_load_from_local(model)
