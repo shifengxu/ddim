@@ -7,7 +7,7 @@ from torch.backends import cudnn
 
 from datasets import get_dataset, data_transform
 from functions import get_optimizer
-from functions.losses import loss_registry
+from functions.losses import noise_estimation_loss2
 from models.diffusion import Model
 from models.ema import EMAHelper
 from runners.diffusion import Diffusion
@@ -24,6 +24,9 @@ class DiffusionTraining(Diffusion):
         self.optimizer = None
         self.scheduler = None
         self.ema_helper = None
+        self.ema_flag = args.ema_flag
+        self.ema_rate = args.ema_rate or config.model.ema_rate
+        self.ema_start_epoch = args.ema_start_epoch
 
     def train(self):
         args, config = self.args, self.config
@@ -51,6 +54,9 @@ class DiffusionTraining(Diffusion):
         logging.info(f"model: {model_name} ===================")
         logging.info(f"  config type: {config.model.type}")
         logging.info(f"  param size : {cnt} => {str_cnt}")
+        logging.info(f"  ema_flag   : {self.ema_flag}")
+        logging.info(f"  ema_rate   : {self.ema_rate}")
+        logging.info(f"  ema_start_epoch: {self.ema_start_epoch}")
         logging.info(f"  stack_sz   : {self.model.stack_sz}") if model_name == 'ModelStack' else None
         logging.info(f"  ts_cnt     : {self.model.ts_cnt}") if model_name == 'ModelStack' else None
         logging.info(f"  brick_cvg  : {self.model.brick_cvg}") if model_name == 'ModelStack' else None
@@ -63,11 +69,12 @@ class DiffusionTraining(Diffusion):
         self.optimizer = get_optimizer(self.config, self.model.parameters())
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=e_cnt)
 
-        if self.config.model.ema:
-            self.ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            self.ema_helper.register(self.model)
+        if self.ema_flag:
+            self.ema_helper = EMAHelper(mu=self.ema_rate)
+            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate})")
         else:
             self.ema_helper = None
+            logging.info(f"  ema_helper: None")
 
         start_epoch = 0
         if self.args.resume_training:
@@ -78,35 +85,41 @@ class DiffusionTraining(Diffusion):
         logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
         self.model = torch.nn.DataParallel(self.model, device_ids=args.gpu_ids)
         cudnn.benchmark = True
-        logging.info(f"ema_helper: {type(self.ema_helper).__name__}")
 
         b_cnt = len(train_loader)
         eb_cnt = e_cnt * b_cnt  # epoch * batch
         data_start = time.time()
         self.model.train()
-        log_interval = 1 if model_name == 'ModelStack' else 5
+        log_interval = 1 if model_name == 'ModelStack' else 10
         logging.info(f"log_interval: {log_interval}")
         logging.info(f"start_epoch : {start_epoch}")
         logging.info(f"epoch_cnt   : {e_cnt}")
         for epoch in range(start_epoch, e_cnt):
-            logging.info(f"Epoch {epoch} ---------- lr={self.scheduler.get_last_lr()[0]:8.7f}")
+            lr = self.scheduler.get_last_lr()[0]
+            logging.info(f"Epoch {epoch} ---------- lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}]")
+            if self.ema_flag and self.ema_start_epoch == epoch:
+                logging.info(f"EMA register...")
+                self.ema_helper.register(self.model)
+            loss_ttl = 0.
+            loss_cnt = 0
             for i, (x, y) in enumerate(train_loader):
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
                 e = torch.randn_like(x)
-                b = self.betas
 
                 # antithetic sampling
                 if model_name == 'ModelStack':
-                    if epoch == 0 and i == 0: logging.info(f"train_model_stack()...")
-                    loss = self.train_model_stack(x, e, b)
+                    loss, xt = self.train_model_stack(x, e)
                 else:
-                    if epoch == 0 and i == 0: logging.info(f"train_model(ts=[{self.ts_low}, {self.ts_high}])...")
-                    loss = self.train_model(x, e, b)
+                    loss, xt = self.train_model(x, e, epoch)
+                loss_ttl += loss.item()
+                loss_cnt += 1
 
                 if i % log_interval == 0 or i == b_cnt - 1:
                     elp, eta = self.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
-                    logging.info(f"E:{epoch}/{e_cnt}, B:{i:3d}/{b_cnt}, loss:{loss.item():8.4f}; elp:{elp}; eta:{eta}")
+                    var, mean = torch.var_mean(xt)
+                    logging.info(f"E:{epoch}/{e_cnt}, B:{i:3d}/{b_cnt}, loss:{loss.item():8.4f};"
+                                 f" xt_mean:{mean:7.4f}; xt_var:{var:6.4f}; elp:{elp}; eta:{eta}")
 
                 step = epoch * b_cnt + i + 1
                 tb_logger.add_scalar("loss", loss, global_step=step)
@@ -114,16 +127,29 @@ class DiffusionTraining(Diffusion):
                         or epoch == e_cnt - 1 and i == b_cnt - 1:
                     self.save_model(epoch, i)
             # for
+            loss_avg = loss_ttl / loss_cnt
+            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f}")
             # self.scheduler.step()
         # for
 
-    def train_model(self, x, e, b):
+    def train_model(self, x, epsilon, epoch):
+        """
+        train model
+        :param x: input clean image
+        :param epsilon: epsilon, distribution N(0, 1)
+        :param epoch:
+        :return:
+        """
         config = self.config
         b_sz = x.size(0)  # batch size
-        t = torch.randint(high=self.num_timesteps, size=(b_sz // 2 + 1,), device=self.device)
-        t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:b_sz]
-        # t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
-        loss = loss_registry[config.model.type](self.model, x, t, e, b)
+        # t = torch.randint(high=self.num_timesteps, size=(b_sz // 2 + 1,), device=self.device)
+        # t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:b_sz]
+        t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+        if not self._ts_log_flag:
+            self._ts_log_flag = True
+            logging.info(f"train_model() timestep: torch.randint(low={self.ts_low}, "
+                         f"high={self.ts_high}, size=({b_sz},), device={self.device})")
+        loss, xt = noise_estimation_loss2(self.model, x, t, epsilon, self.alphas_cumprod)
         self.optimizer.zero_grad()
         loss.backward()
         try:
@@ -131,11 +157,12 @@ class DiffusionTraining(Diffusion):
         except Exception:
             pass
         self.optimizer.step()
-        if self.config.model.ema:
+        if self.ema_flag and epoch >= self.ema_start_epoch:
             self.ema_helper.update(self.model)
-        return loss
+            self.ema_helper.ema(self.model)
+        return loss, xt
 
-    def train_model_stack(self, x, e, b):
+    def train_model_stack(self, x, e):
         config = self.config
         b_sz = x.size(0)  # batch size
         stack_sz = config.model.stack_size if hasattr(config.model, 'stack_size') else 5
@@ -147,16 +174,20 @@ class DiffusionTraining(Diffusion):
             high = brick_cvg * (k + 1)
             if high > ts_cnt: high = ts_cnt
             t = torch.randint(low=low, high=high, size=(b_sz,), device=self.device)
-            loss = loss_registry[config.model.type](self.model, x, t, e, b)
+            if not self._ts_log_flag:
+                self._ts_log_flag = True
+                logging.info(f"train_model_stack() timestep: torch.randint(low={self.ts_low}, "
+                             f"high={self.ts_high}, size=({b_sz},), device={self.device})")
+            loss, xt = noise_estimation_loss2(self.model, x, t, e, self.alphas_cumprod)
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.optim.grad_clip)
             self.optimizer.step()
-            if self.config.model.ema:
+            if self.ema_flag:
                 self.ema_helper.update(self.model)
             total_loss += loss
         avg_loss = total_loss / stack_sz
-        return avg_loss
+        return avg_loss, xt
 
     def load_model(self, states):
         if isinstance(states, dict):
@@ -172,7 +203,7 @@ class DiffusionTraining(Diffusion):
         start_epoch = states[2]
         logging.info(f"  resume optimizer  : eps={states[1]['param_groups'][0]['eps']}")
         logging.info(f"  resume start_epoch: {start_epoch}")
-        if self.config.model.ema:
+        if self.ema_flag:
             self.ema_helper.load_state_dict(states[-1])
             logging.info(f"  resume ema_helper : ...")
         return start_epoch
@@ -188,11 +219,10 @@ class DiffusionTraining(Diffusion):
         logging.info(f"  resume optimizer  : eps={op_st['param_groups'][0]['eps']}")
         logging.info(f"  resume scheduler  : lr={self.scheduler.get_last_lr():8.6f}")
         logging.info(f"  resume start_epoch: {start_epoch}")
-        if self.config.model.ema:
+        if self.ema_flag:
             self.ema_helper.load_state_dict(states['ema_helper'])
             logging.info(f"  resume ema_helper : mu={self.ema_helper.mu:8.6f}")
         return start_epoch
-
 
     def save_model(self, e_idx, b_idx):
         real_model = self.model
@@ -204,13 +234,13 @@ class DiffusionTraining(Diffusion):
             'scheduler': self.scheduler.state_dict(),
             'cur_epoch': e_idx
         }
-        if self.config.model.ema and self.ema_helper:
+        if self.ema_flag and self.ema_helper:
             states['ema_helper'] = self.ema_helper.state_dict()
 
         fpath = os.path.join(self.args.log_path, f"ckpt_E{e_idx:04d}_B{b_idx:04d}.pth")
         logging.info(f"save ckpt dict: {fpath}")
         torch.save(states, fpath)
-        fpath = os.path.join(self.args.log_path, "ckpt.pth")
+        fpath = os.path.join(self.args.log_path, f"ckpt_{self.ts_low:03d}-{self.ts_high:03d}.pth")
         logging.info(f"save ckpt dict: {fpath}")
         torch.save(states, fpath)
 

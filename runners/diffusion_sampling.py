@@ -8,7 +8,6 @@ import torch
 from datasets import inverse_data_transform
 from functions.ckpt_util import get_ckpt_path
 from models.diffusion import Model, ModelStack
-from models.ema import EMAHelper
 from runners.diffusion import Diffusion
 
 import torchvision.utils as tvu
@@ -19,6 +18,8 @@ from utils import count_parameters
 class DiffusionSampling(Diffusion):
     def __init__(self, args, config, device=None):
         super().__init__(args, config, device)
+        self.sample_count = 50000    # sample image count
+        self.sample_img_init_id = 0  # sample image init ID. useful when generate image in parallel.
 
     def model_load_from_local(self, model):
         if self.args.sample_ckpt_path:
@@ -42,12 +43,43 @@ class DiffusionSampling(Diffusion):
 
     def model_stack_load_from_local(self, model: ModelStack):
         root_dir = self.args.sample_ckpt_dir
-        ckpt_path_arr = [
-            f"{root_dir}/output0/exp/logs/doc/ckpt_E0249_B0199.pth",
-            f"{root_dir}/output1/exp/logs/doc/ckpt_E0249_B0199.pth",
-            f"{root_dir}/output2/exp/logs/doc/ckpt_E0249_B0199.pth",
-            f"{root_dir}/output3/exp/logs/doc/ckpt_E0249_B0199.pth",
-        ]
+        if self.args.sample_stack_size == 10:
+            ckpt_path_arr = [
+                os.path.join(root_dir, "ckpt_000-100.pth"),
+                os.path.join(root_dir, "ckpt_100-200.pth"),
+                os.path.join(root_dir, "ckpt_200-300.pth"),
+                os.path.join(root_dir, "ckpt_300-400.pth"),
+                os.path.join(root_dir, "ckpt_400-500.pth"),
+                os.path.join(root_dir, "ckpt_500-600.pth"),
+                os.path.join(root_dir, "ckpt_600-700.pth"),
+                os.path.join(root_dir, "ckpt_700-800.pth"),
+                os.path.join(root_dir, "ckpt_800-900.pth"),
+                os.path.join(root_dir, "ckpt_900-1000.pth"),
+            ]
+        elif self.args.sample_stack_size == 4:
+            ckpt_path_arr = [
+                os.path.join(root_dir, "ckpt_000-250.pth"),
+                os.path.join(root_dir, "ckpt_250-500.pth"),
+                os.path.join(root_dir, "ckpt_500-750.pth"),
+                os.path.join(root_dir, "ckpt_750-1000.pth"),
+            ]
+        else:  # other cases, need manual handling.
+            ckpt_path_arr = [
+                # f"{root_dir}/exp/model_S10E200/ckpt_000-100.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_100-200.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_200-300.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_300-400.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_400-500.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_500-600.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_600-700.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_700-800.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_800-900.pth",
+                # f"{root_dir}/exp/model_S10E200/ckpt_900-1000.pth",
+                f"{root_dir}/exp/model_stack_epoch500/ckpt_000-250.pth",
+                f"{root_dir}/exp/model_stack_epoch500/ckpt_250-500.pth",
+                f"{root_dir}/exp/model_stack_epoch500/ckpt_500-750.pth",
+                f"{root_dir}/exp/model_stack_epoch500/ckpt_750-1000.pth",
+            ]
         cnt, str_cnt = count_parameters(model, log_fn=None)
         logging.info(f"Loading ModelStack(stack_sz: {model.stack_sz})")
         logging.info(f"  config type  : {self.config.model.type}")
@@ -72,8 +104,10 @@ class DiffusionSampling(Diffusion):
         return model
 
     def sample(self):
-        # model = Model(self.config)
-        model = ModelStack(self.config)
+        if self.args.sample_stack_size > 1:
+            model = ModelStack(self.config, self.args.sample_stack_size)
+        else:
+            model = Model(self.config)
 
         if not self.args.use_pretrained:
             div_conquer = True
@@ -108,23 +142,25 @@ class DiffusionSampling(Diffusion):
 
     def sample_fid(self, model):
         config = self.config
-        total_n_samples = 50000
+        self.sample_count = self.args.sample_count
+        self.sample_img_init_id = self.args.sample_img_init_id
         logging.info(f"sample_fid(self, {type(model).__name__})...")
-        logging.info(f"  args.image_folder: {self.args.image_folder}")
-        logging.info(f"  args.sample_type : {self.args.sample_type}")
-        logging.info(f"  args.skip_type   : {self.args.skip_type}")
-        logging.info(f"  args.timesteps   : {self.args.timesteps}")
-        logging.info(f"  num_timesteps    : {self.num_timesteps}")
-        logging.info(f"  total_n_samples  : {total_n_samples}")
-        b_sz = config.sampling.batch_size
-        n_rounds = (total_n_samples - 1) // b_sz + 1  # get the ceiling
-        logging.info(f"  batch_size       : {b_sz}")
-        logging.info(f"  n_rounds         : {n_rounds}")
+        logging.info(f"  args.sample_output_dir : {self.args.sample_output_dir}")
+        logging.info(f"  args.sample_type       : {self.args.sample_type}")
+        logging.info(f"  args.skip_type         : {self.args.skip_type}")
+        logging.info(f"  args.timesteps         : {self.args.timesteps}")
+        logging.info(f"  num_timesteps          : {self.num_timesteps}")
+        logging.info(f"  sample_count           : {self.sample_count}")
+        logging.info(f"  sample_img_init_id     : {self.sample_img_init_id}")
+        b_sz = self.args.sample_batch_size or config.sampling.batch_size
+        n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
+        logging.info(f"  batch_size             : {b_sz}")
+        logging.info(f"  n_rounds               : {n_rounds}")
         logging.info(f"  Generating image samples for FID evaluation")
         time_start = time.time()
         with torch.no_grad():
             for r_idx in range(n_rounds):
-                n = b_sz if r_idx + 1 < n_rounds else total_n_samples - r_idx * b_sz
+                n = b_sz if r_idx + 1 < n_rounds else self.sample_count - r_idx * b_sz
                 logging.info(f"round: {r_idx}/{n_rounds}. to generate: {n}")
                 use_x0_for_xt = False  # hard coded switch
                 if use_x0_for_xt:
@@ -152,12 +188,17 @@ class DiffusionSampling(Diffusion):
         x = inverse_data_transform(config, x)
         img_cnt = len(x)
         elp, eta = self.get_time_ttl_and_eta(time_start, r_idx+1, n_rounds)
-        img_dir = self.args.image_folder
+        img_dir = self.args.sample_output_dir
         logging.info(f"save {img_cnt} images to: {img_dir}. round:{r_idx}/{n_rounds}, elp:{elp}, eta:{eta}")
+        img_first = img_last = None
         for i in range(img_cnt):
-            img_id = r_idx * b_sz + i
+            img_id = r_idx * b_sz + i + self.sample_img_init_id
             img_path = os.path.join(img_dir, f"{img_id:05d}.png")
             tvu.save_image(x[i], img_path)
+            if i == 0: img_first = f"{img_id:05d}.png"
+            if i == img_cnt - 1: img_last = f"{img_id:05d}.png"
+        logging.info(f"image generated: {img_first} ~ {img_last}. "
+                     f"init:{self.sample_img_init_id}; cnt:{self.sample_count}")
 
     def sample_fid_decrease_avg(self, x_t, model, config):
         x_t_ori = x_t.clone()
@@ -174,7 +215,7 @@ class DiffusionSampling(Diffusion):
             for i in range(len(x)):
                 avg = torch.mean(x_t[i])
                 var = torch.var(x_t[i], unbiased=False)
-                img_path = os.path.join(self.args.image_folder, f"{i:04d}_avg{avg:.4f}_var{var:.4f}.png")
+                img_path = os.path.join(self.args.sample_output_dir, f"{i:04d}_avg{avg:.4f}_var{var:.4f}.png")
                 logging.info(f"save file: {img_path}")
                 tvu.save_image(x[i], img_path)
             # for i
@@ -200,7 +241,7 @@ class DiffusionSampling(Diffusion):
         for i in range(len(x)):
             for j in range(x[i].size(0)):
                 tvu.save_image(
-                    x[i][j], os.path.join(self.args.image_folder, f"{j}_{i}.png")
+                    x[i][j], os.path.join(self.args.sample_output_dir, f"{j}_{i}.png")
                 )
 
     def sample_interpolation(self, model):
@@ -241,7 +282,7 @@ class DiffusionSampling(Diffusion):
                 xs.append(self.sample_image(x[i : i + 8], model))
         x = inverse_data_transform(config, torch.cat(xs, dim=0))
         for i in range(x.size(0)):
-            tvu.save_image(x[i], os.path.join(self.args.image_folder, f"{i}.png"))
+            tvu.save_image(x[i], os.path.join(self.args.sample_output_dir, f"{i}.png"))
 
     def gen_xt_from_x0(self, n, model, img_path_arr=None):
         from PIL import Image
@@ -268,7 +309,7 @@ class DiffusionSampling(Diffusion):
 
         # save x0
         for i in range(len(x0)):
-            img_path = os.path.join(self.args.image_folder, f"{i:04d}.ori.png")
+            img_path = os.path.join(self.args.sample_output_dir, f"{i:04d}.ori.png")
             logging.info(f"save file: {img_path}")
             tvu.save_image(x0[i], img_path)
 

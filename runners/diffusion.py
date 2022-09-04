@@ -83,17 +83,14 @@ class Diffusion(object):
             ts_range = [0, self.num_timesteps]
         self.ts_low = ts_range[0]   # timestep low bound, inclusive
         self.ts_high = ts_range[1]  # timestep high bound, exclusive
+        self._ts_log_flag = False   # only internal flag
         logging.info(f"  ts_low        : {self.ts_low}")
         logging.info(f"  ts_high       : {self.ts_high}")
 
-        alphas = 1.0 - betas
-        alphas_cumprod = alphas.cumprod(dim=0)
-        alphas_cumprod_prev = torch.cat(
-            [torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0
-        )
-        posterior_variance = (
-            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
-        )
+        self.alphas = 1.0 - betas
+        self.alphas_cumprod = ac = self.alphas.cumprod(dim=0)
+        alphas_cumprod_prev = torch.cat([torch.ones(1).to(device), ac[:-1]], dim=0)
+        posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - ac)
         if self.model_var_type == "fixedlarge":
             self.logvar = betas.log()
             # torch.cat(

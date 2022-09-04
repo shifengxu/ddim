@@ -23,13 +23,16 @@ def parse_args_and_config():
 
     parser.add_argument("--config", type=str, default='cifar10.yml', help="Path to the config file")
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0, 1, 2])
-    parser.add_argument("--seed", type=int, default=1234, help="Random seed")
+    parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
     parser.add_argument("--doc", type=str, default='doc',
                         help="A string for documentation purpose. Will be the name of the log folder.")
     parser.add_argument("--data_dir", type=str, default="", help="dir of training/testing data.")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
+    parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
+    parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
+    parser.add_argument('--ema_start_epoch', type=int, default=50, help='EMA start epoch')
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
@@ -37,11 +40,14 @@ def parse_args_and_config():
     parser.add_argument("--test", type=str2bool, default=False, help="Whether to test the model")
     parser.add_argument("--sample", type=str2bool, default=False, help="Whether to produce samples")
     parser.add_argument("--sample_ckpt_dir", type=str, default='.')
+    parser.add_argument("--sample_batch_size", type=int, default='0', help="0 mean from config file")
+    parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
+    parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
+    parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
+    parser.add_argument("--sample_stack_size", type=int, default='1', help="model stack size when sampling")
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", type=str2bool, default=False)
-    parser.add_argument("-i", "--image_folder", type=str, default="images",
-                        help="The folder name of samples")
     parser.add_argument("--ni", action="store_true", default=True,
                         help="No interaction. Suitable for Slurm Job launcher")
     parser.add_argument("--use_pretrained", action="store_true")
@@ -68,7 +74,8 @@ def parse_args_and_config():
 
     # setup logger
     logger = logging.getLogger()
-    formatter = logging.Formatter("%(levelname)s - %(filename)s - %(asctime)s - %(message)s")
+    # formatter = logging.Formatter("%(levelname)s - %(filename)s - %(asctime)s - %(message)s")
+    formatter = logging.Formatter("%(asctime)s - %(message)s")
     handler1 = logging.StreamHandler(stream=sys.stdout)
     handler1.setFormatter(formatter)
     logger.addHandler(handler1)
@@ -86,24 +93,24 @@ def parse_args_and_config():
         new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
     elif args.sample:
         os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
-        args.image_folder = os.path.join(args.exp, "image_samples", args.image_folder)
-        if not os.path.exists(args.image_folder):
-            os.makedirs(args.image_folder)
+        if not os.path.exists(args.sample_output_dir):
+            print(f"mkdir: {args.sample_output_dir}")
+            os.makedirs(args.sample_output_dir)
         else:
             if not (args.fid or args.interpolation):
                 overwrite = False
                 if args.ni:
                     overwrite = True
                 else:
-                    response = input(
-                        f"Image folder {args.image_folder} already exists. Overwrite? (Y/N)"
-                    )
+                    response = input(f"Image folder {args.sample_output_dir} already exists. Overwrite? (Y/N)")
                     if response.upper() == "Y":
                         overwrite = True
 
                 if overwrite:
-                    shutil.rmtree(args.image_folder)
-                    os.makedirs(args.image_folder)
+                    print(f"rmtree: {args.sample_output_dir}")
+                    shutil.rmtree(args.sample_output_dir)
+                    print(f"mkdir : {args.sample_output_dir}")
+                    os.makedirs(args.sample_output_dir)
                 else:
                     print("Output image folder exists. Program halted.")
                     sys.exit(0)
@@ -119,14 +126,17 @@ def parse_args_and_config():
     logging.info(f"ts_range: {args.ts_range}")
 
     # set random seed
-    logging.info(f"seed: {args.seed}")
-    logging.info(f"  torch.manual_seed({args.seed})")
-    logging.info(f"  np.random.seed({args.seed})")
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    if torch.cuda.is_available():
-        logging.info(f"  torch.cuda.manual_seed_all({args.seed})")
-        torch.cuda.manual_seed_all(args.seed)
+    seed = args.seed  # if seed is 0. then ignore it.
+    logging.info(f"args.seed : {seed}")
+    if seed:
+        logging.info(f"  torch.manual_seed({seed})")
+        logging.info(f"  np.random.seed({seed})")
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+    if seed and torch.cuda.is_available():
+        logging.info(f"  torch.cuda.manual_seed_all({seed})")
+        torch.cuda.manual_seed_all(seed)
+    logging.info(f"final seed: torch.seed(): {torch.seed()}")
 
     torch.backends.cudnn.benchmark = True
 

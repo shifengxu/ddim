@@ -349,10 +349,10 @@ class ModelStack(nn.Module):
     """
     Model stack. we put some model together to make a stack. And call each model 'brick'.
     """
-    def __init__(self, config):
+    def __init__(self, config, stack_size=5):
         super().__init__()
         self.config = config
-        self.stack_sz = config.model.stack_size if hasattr(config.model, 'stack_size') else 5
+        self.stack_sz = stack_size
         self.ts_cnt = config.diffusion.num_diffusion_timesteps
         self.model_stack = nn.ModuleList()
         self.brick_hit_counter = []  # track hit count of each brick
