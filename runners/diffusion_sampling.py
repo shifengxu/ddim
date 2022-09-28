@@ -56,6 +56,17 @@ class DiffusionSampling(Diffusion):
                 os.path.join(root_dir, "ckpt_800-900.pth"),
                 os.path.join(root_dir, "ckpt_900-1000.pth"),
             ]
+        elif self.args.sample_stack_size == 8:
+            ckpt_path_arr = [
+                os.path.join(root_dir, "ckpt_000-125.pth"),
+                os.path.join(root_dir, "ckpt_125-250.pth"),
+                os.path.join(root_dir, "ckpt_250-375.pth"),
+                os.path.join(root_dir, "ckpt_375-500.pth"),
+                os.path.join(root_dir, "ckpt_500-625.pth"),
+                os.path.join(root_dir, "ckpt_625-750.pth"),
+                os.path.join(root_dir, "ckpt_750-875.pth"),
+                os.path.join(root_dir, "ckpt_875-1000.pth"),
+            ]
         elif self.args.sample_stack_size == 4:
             ckpt_path_arr = [
                 os.path.join(root_dir, "ckpt_000-250.pth"),

@@ -96,7 +96,9 @@ class DiffusionTraining(Diffusion):
         logging.info(f"epoch_cnt   : {e_cnt}")
         for epoch in range(start_epoch, e_cnt):
             lr = self.scheduler.get_last_lr()[0]
-            logging.info(f"Epoch {epoch} ---------- lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}]")
+            msg = f"lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}];"
+            if self.ema_flag: msg += f" ema_start_epoch={self.ema_start_epoch}, ema_rate={self.ema_rate}"
+            logging.info(f"Epoch {epoch} ---------- {msg}")
             if self.ema_flag and self.ema_start_epoch == epoch:
                 logging.info(f"EMA register...")
                 self.ema_helper.register(self.model)
@@ -144,11 +146,11 @@ class DiffusionTraining(Diffusion):
         b_sz = x.size(0)  # batch size
         # t = torch.randint(high=self.num_timesteps, size=(b_sz // 2 + 1,), device=self.device)
         # t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:b_sz]
-        t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
         if not self._ts_log_flag:
             self._ts_log_flag = True
             logging.info(f"train_model() timestep: torch.randint(low={self.ts_low}, "
                          f"high={self.ts_high}, size=({b_sz},), device={self.device})")
+        t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
         loss, xt = noise_estimation_loss2(self.model, x, t, epsilon, self.alphas_cumprod)
         self.optimizer.zero_grad()
         loss.backward()
@@ -157,6 +159,7 @@ class DiffusionTraining(Diffusion):
         except Exception:
             pass
         self.optimizer.step()
+
         if self.ema_flag and epoch >= self.ema_start_epoch:
             self.ema_helper.update(self.model)
             self.ema_helper.ema(self.model)

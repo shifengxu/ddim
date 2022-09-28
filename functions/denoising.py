@@ -20,6 +20,7 @@ def generalized_steps(x_T, seq, model, b, **kwargs):
     :return:
     """
     eta = kwargs.get("eta", 0)
+    msg = f"seq=[{seq[-1]}~{seq[0]}], len={len(seq)}"
     with torch.no_grad():
         b_sz = x_T.size(0)
         seq_next = [-1] + list(seq[:-1])
@@ -27,7 +28,7 @@ def generalized_steps(x_T, seq, model, b, **kwargs):
         xs = [x_T]
         for i, j in zip(reversed(seq), reversed(seq_next)):
             if i % 50 == 0:
-                logging.info(f"generalized_steps(): i={i}")
+                logging.info(f"generalized_steps(): {msg}; i={i}")
             t = (torch.ones(b_sz) * i).to(x_T.device)   # [999., 999.]
             q = (torch.ones(b_sz) * j).to(x_T.device)   # [998., 998.]. next t; can assume as t-1
             at = compute_alpha(b, t.long()) # alpha_t

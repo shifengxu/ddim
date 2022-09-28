@@ -229,8 +229,8 @@ class Model(nn.Module):
                                        stride=1,
                                        padding=1)
 
-        curr_res = resolution
-        in_ch_mult = (1,)+ch_mult
+        curr_res = resolution       # 32
+        in_ch_mult = (1,)+ch_mult   # [1, 1, 2, 2, 2]
         self.down = nn.ModuleList()
         block_in = None
         for i_level in range(self.ch_mult_len):
@@ -331,8 +331,7 @@ class Model(nn.Module):
         # upsampling
         for i_level in reversed(range(self.ch_mult_len)):
             for i_block in range(self.num_res_blocks+1):
-                h = self.up[i_level].block[i_block](
-                    torch.cat([h, hs.pop()], dim=1), temb)
+                h = self.up[i_level].block[i_block](torch.cat([h, hs.pop()], dim=1), temb)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h)
             if i_level != 0:

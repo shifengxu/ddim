@@ -12,6 +12,7 @@ import torch.utils.tensorboard as tb
 from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
+from runners.diffusion_partial_sampling import DiffusionPartialSampling
 
 from utils import str2bool
 
@@ -45,6 +46,10 @@ def parse_args_and_config():
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
     parser.add_argument("--sample_stack_size", type=int, default='1', help="model stack size when sampling")
+    parser.add_argument("--psample", type=str, default="from_gn", help="Partial Sampling")
+    parser.add_argument('--psample_ts_list', nargs='+', type=int, help='0 means x0',
+                        default=[50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 0, 1000])
+    parser.add_argument('--psample_dir', type=str, default="./exp/partialSample")
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", type=str2bool, default=False)
@@ -191,7 +196,11 @@ def main():
     logging.info(f"args: {args}")
 
     try:
-        if args.sample:
+        if args.psample:
+            logging.info(f"partial sample ===========================")
+            runner = DiffusionPartialSampling(args, config, device=config.device)
+            runner.run()
+        elif args.sample:
             logging.info(f"sample ===================================")
             runner = DiffusionSampling(args, config, device=config.device)
             runner.sample()
