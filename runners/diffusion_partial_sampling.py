@@ -183,6 +183,7 @@ class DiffusionPartialSampling(Diffusion):
         return model
 
     def save_xt(self, x, ts, r_idx, b_sz):
+        x = x.clone()
         x = inverse_data_transform(self.config, x)
         img_cnt = len(x)
         ts_dir = os.path.join(self.args.psample_dir, f"from_gn_ts_{ts:04d}")
@@ -243,6 +244,7 @@ class DiffusionPartialSampling(Diffusion):
         r_idx = kwargs['r_idx']
         b_sz  = kwargs['b_sz']
         ts_list = self.args.psample_ts_list
+        ts_min = min(ts_list)
         if 1000 in ts_list:
             self.save_xt(x_T, 1000, r_idx, b_sz)
         msg = f"seq=[{seq[-1]}~{seq[0]}], len={len(seq)}"
@@ -255,6 +257,8 @@ class DiffusionPartialSampling(Diffusion):
                 itr = 1000 - i
                 elp, rmn = self.get_time_ttl_and_eta(self.time_start, r_idx * 1000 + itr, r_cnt * 1000)
                 logging.info(f"generalized_steps(): {msg}; i={i}. round:{r_idx}/{r_cnt}, elp:{elp}, eta:{rmn}")
+            if i < ts_min:
+                break
             t = (torch.ones(img_cnt) * i).to(x_T.device)  # [999., 999.]
             q = (torch.ones(img_cnt) * j).to(x_T.device)  # [998., 998.]. next t; can assume as t-1
             at = self.cumprod_1001.index_select(0, t.long() + 1).view(-1, 1, 1, 1)  # alpha_t
