@@ -23,9 +23,11 @@ from utils import count_parameters
 class DiffusionPartialSampling(Diffusion):
     def __init__(self, args, config, device=None):
         super().__init__(args, config, device)
-        self.sample_count = 50000       # just hard code
-        self.sample_img_init_id = 0     # just hard code
+        self.sample_count = args.sample_count
+        self.sample_img_init_id = args.sample_img_init_id
         self.time_start = None
+        betas = torch.cat([torch.zeros(1).to(self.betas.device), self.betas], dim=0)
+        self.cumprod_1001 = (1 - betas).cumprod(dim=0)  # has 1001 elements
 
     def run(self):
         args, config = self.args, self.config
@@ -58,38 +60,32 @@ class DiffusionPartialSampling(Diffusion):
         logging.info(f"  sample_count           : {self.sample_count}")
         logging.info(f"  sample_img_init_id     : {self.sample_img_init_id}")
         b_sz = self.args.sample_batch_size or config.sampling.batch_size
-        n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
+        r_cnt = (self.sample_count - 1) // b_sz + 1  # get the ceiling
         logging.info(f"  batch_size             : {b_sz}")
-        logging.info(f"  n_rounds               : {n_rounds}")
+        logging.info(f"  round_cnt              : {r_cnt}")
         img_dir = self.args.psample_dir
         if not os.path.exists(img_dir):
             logging.info(f"mkdir: {img_dir}")
             os.makedirs(img_dir)
 
-        with torch.no_grad():
-            for ts in self.args.psample_ts_list:
-                self.gen_xt_from_gn_by_ts(ts, model, n_rounds, b_sz)
-            # for ts
-        # with
-
-    def gen_xt_from_gn_by_ts(self, ts, model, n_rounds, b_sz):
-        config = self.config
         self.time_start = time.time()
-        for r_idx in range(n_rounds):
-            n = b_sz if r_idx + 1 < n_rounds else self.sample_count - r_idx * b_sz
-            logging.info(f"round: {r_idx}/{n_rounds}. to generate: {n}")
-            x_t = torch.randn(  # normal distribution with mean 0 and variance 1
-                n,
-                config.data.channels,
-                config.data.image_size,
-                config.data.image_size,
-                device=self.device,
-            )
-            self.sample_fid_vanilla(x_t, model, ts, n_rounds, r_idx, b_sz)
-            real_model = model.module if isinstance(model, torch.nn.DataParallel) else model
-            if isinstance(real_model, ModelStack):
-                logging.info(f"ModelStack brick hit counter: {real_model.brick_hit_counter}")
-        # for r_idx
+        with torch.no_grad():
+            for r_idx in range(r_cnt):
+                n = b_sz if r_idx + 1 < r_cnt else self.sample_count - r_idx * b_sz
+                logging.info(f"round: {r_idx}/{r_cnt}. to generate: {n}")
+                x_t = torch.randn(  # normal distribution with mean 0 and variance 1
+                    n,
+                    config.data.channels,
+                    config.data.image_size,
+                    config.data.image_size,
+                    device=self.device,
+                )
+                self.sample_image(x_t, model, r_cnt=r_cnt, r_idx=r_idx, b_sz=b_sz)
+                real_model = model.module if isinstance(model, torch.nn.DataParallel) else model
+                if isinstance(real_model, ModelStack):
+                    logging.info(f"ModelStack brick hit counter: {real_model.brick_hit_counter}")
+            # for r_idx
+        # with
 
     def model_load_from_local(self, model):
         if self.args.sample_ckpt_path:
@@ -179,24 +175,22 @@ class DiffusionPartialSampling(Diffusion):
                 ms[i].load_state_dict(states[0], strict=True)
         # for
         model = model.to(self.device)
-        model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
+        if len(self.args.gpu_ids) > 0:
+            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
         logging.info(f"  model.to({self.device})")
         logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
         return model
 
-    def sample_fid_vanilla(self, x_t, model, ts, n_rounds, r_idx, b_sz):
-        if ts == self.num_timesteps: # usually 1000.
-            x = x_t
-        else:
-            x = self.sample_image(x_t, model, ts)
+    def save_xt(self, x, ts, r_cnt, r_idx, b_sz):
         x = inverse_data_transform(self.config, x)
         img_cnt = len(x)
-        elp, eta = self.get_time_ttl_and_eta(self.time_start, r_idx+1, n_rounds)
+        itr = 1000 - ts
+        elp, eta = self.get_time_ttl_and_eta(self.time_start, r_idx*1000+itr, r_cnt*1000)
         ts_dir = os.path.join(self.args.psample_dir, f"from_gn_ts_{ts:04d}")
         if not os.path.exists(ts_dir):
             logging.info(f"mkdir: {ts_dir}")
             os.makedirs(ts_dir)
-        logging.info(f"save {img_cnt} images to: {ts_dir}. round:{r_idx}/{n_rounds}, elp:{elp}, eta:{eta}")
+        logging.info(f"  save {img_cnt} images to: {ts_dir}. round:{r_idx}/{r_cnt}, elp:{elp}, eta:{eta}")
         img_first = img_last = None
         for i in range(img_cnt):
             img_id = r_idx * b_sz + i + self.sample_img_init_id
@@ -207,20 +201,19 @@ class DiffusionPartialSampling(Diffusion):
         logging.info(f"  image generated: {img_first} ~ {img_last}. "
                      f"init:{self.sample_img_init_id}; cnt:{self.sample_count}")
 
-    def sample_image(self, x, model, ts, last=True):
+    def sample_image(self, x, model, last=True, **kwargs):
         if self.args.sample_type == "generalized":
             if self.args.skip_type == "uniform":
                 skip = self.num_timesteps // self.args.timesteps
-                seq = range(ts, self.num_timesteps, skip)
+                seq = range(0, self.num_timesteps, skip)
             elif self.args.skip_type == "quad":
                 seq = (np.linspace(0, np.sqrt(self.num_timesteps * 0.8), self.args.timesteps) ** 2)
                 seq = [int(s) for s in list(seq)]
             else:
                 raise NotImplementedError
-            from functions.denoising import generalized_steps
 
-            xs = generalized_steps(x, seq, model, self.betas, eta=self.args.eta)
-            x = xs
+            kwargs['eta'] = self.args.eta
+            x = self.generalized_steps(x, seq, model, **kwargs)
         elif self.args.sample_type == "ddpm_noisy":
             if self.args.skip_type == "uniform":
                 skip = self.num_timesteps // self.args.timesteps
@@ -233,11 +226,51 @@ class DiffusionPartialSampling(Diffusion):
             from functions.denoising import ddpm_steps
 
             x = ddpm_steps(x, seq, model, self.betas)
+            if last:
+                x = x[0][-1]
         else:
             raise NotImplementedError
-        if last:
-            x = x[0][-1]
         return x
+
+    def generalized_steps(self, x_T, seq, model, **kwargs):
+        """
+        Original paper: Denoising Diffusion Implicit Models. ICLR. 2021
+        :param x_T: x_T in formula; it has initial Gaussian Noise
+        :param seq:
+        :param model:
+        :param b:
+        :param kwargs:
+        :return:
+        """
+        eta   = kwargs.get("eta", 0)
+        r_cnt = kwargs['r_cnt']
+        r_idx = kwargs['r_idx']
+        b_sz  = kwargs['b_sz']
+        ts_list = self.args.psample_ts_list
+        if 1000 in ts_list:
+            self.save_xt(x_T, 1000, r_cnt, r_idx, b_sz)
+        msg = f"seq=[{seq[-1]}~{seq[0]}], len={len(seq)}"
+        xt = x_T
+        xt = xt.to(x_T.device)
+        img_cnt = x_T.size(0)
+        seq_next = [-1] + list(seq[:-1])
+        for i, j in zip(reversed(seq), reversed(seq_next)):
+            if i % 50 == 0:
+                logging.info(f"generalized_steps(): {msg}; i={i}")
+            t = (torch.ones(img_cnt) * i).to(x_T.device)  # [999., 999.]
+            q = (torch.ones(img_cnt) * j).to(x_T.device)  # [998., 998.]. next t; can assume as t-1
+            at = self.cumprod_1001.index_select(0, t.long() + 1).view(-1, 1, 1, 1)  # alpha_t
+            aq = self.cumprod_1001.index_select(0, q.long() + 1).view(-1, 1, 1, 1)  # alpha_{t-1}
+            et = model(xt, t)  # epsilon_t
+            x0 = (xt - et * (1 - at).sqrt()) / at.sqrt()  # formula (9)
+            sigma_t = eta * ((1 - at / aq) * (1 - aq) / (1 - at)).sqrt()  # formula (16)
+            c2 = (1 - aq - sigma_t ** 2).sqrt()
+            xt_next = aq.sqrt() * x0 + c2 * et + sigma_t * torch.randn_like(x_T)  # formula (12)
+            xt = xt_next
+            if i in ts_list:
+                self.save_xt(xt, i, r_cnt, r_idx, b_sz)
+
+        return xt
 
     # ************************************************************************* gen xt from x0
     def gen_xt_from_x0(self, args, config):

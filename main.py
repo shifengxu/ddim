@@ -123,7 +123,7 @@ def parse_args_and_config():
     # add device
     gpu_ids = args.gpu_ids
     logging.info(f"gpu_ids : {gpu_ids}")
-    device = torch.device(f"cuda:{gpu_ids[0]}") if torch.cuda.is_available() else torch.device("cpu")
+    device = torch.device(f"cuda:{gpu_ids[0]}") if torch.cuda.is_available() and gpu_ids else torch.device("cpu")
     new_config.device = device
     if not args.data_dir:
         args.data_dir = args.exp
