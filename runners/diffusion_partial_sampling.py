@@ -72,7 +72,8 @@ class DiffusionPartialSampling(Diffusion):
         with torch.no_grad():
             for r_idx in range(r_cnt):
                 n = b_sz if r_idx + 1 < r_cnt else self.sample_count - r_idx * b_sz
-                logging.info(f"round: {r_idx}/{r_cnt}. to generate: {n}")
+                logging.info(f"round: {r_idx}/{r_cnt}. to generate: {n}."
+                             f" init:{self.sample_img_init_id}; cnt:{self.sample_count}")
                 x_t = torch.randn(  # normal distribution with mean 0 and variance 1
                     n,
                     config.data.channels,
@@ -181,16 +182,13 @@ class DiffusionPartialSampling(Diffusion):
         logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
         return model
 
-    def save_xt(self, x, ts, r_cnt, r_idx, b_sz):
+    def save_xt(self, x, ts, r_idx, b_sz):
         x = inverse_data_transform(self.config, x)
         img_cnt = len(x)
-        itr = 1000 - ts
-        elp, eta = self.get_time_ttl_and_eta(self.time_start, r_idx*1000+itr, r_cnt*1000)
         ts_dir = os.path.join(self.args.psample_dir, f"from_gn_ts_{ts:04d}")
         if not os.path.exists(ts_dir):
             logging.info(f"mkdir: {ts_dir}")
             os.makedirs(ts_dir)
-        logging.info(f"  save {img_cnt} images to: {ts_dir}. round:{r_idx}/{r_cnt}, elp:{elp}, eta:{eta}")
         img_first = img_last = None
         for i in range(img_cnt):
             img_id = r_idx * b_sz + i + self.sample_img_init_id
@@ -198,8 +196,7 @@ class DiffusionPartialSampling(Diffusion):
             tvu.save_image(x[i], img_path)
             if i == 0: img_first = f"{img_id:05d}.png"
             if i == img_cnt - 1: img_last = f"{img_id:05d}.png"
-        logging.info(f"  image generated: {img_first} ~ {img_last}. "
-                     f"init:{self.sample_img_init_id}; cnt:{self.sample_count}")
+        logging.info(f"  saved {img_cnt} images to: {ts_dir}/: {img_first} ~ {img_last}.")
 
     def sample_image(self, x, model, last=True, **kwargs):
         if self.args.sample_type == "generalized":
@@ -238,7 +235,6 @@ class DiffusionPartialSampling(Diffusion):
         :param x_T: x_T in formula; it has initial Gaussian Noise
         :param seq:
         :param model:
-        :param b:
         :param kwargs:
         :return:
         """
@@ -248,7 +244,7 @@ class DiffusionPartialSampling(Diffusion):
         b_sz  = kwargs['b_sz']
         ts_list = self.args.psample_ts_list
         if 1000 in ts_list:
-            self.save_xt(x_T, 1000, r_cnt, r_idx, b_sz)
+            self.save_xt(x_T, 1000, r_idx, b_sz)
         msg = f"seq=[{seq[-1]}~{seq[0]}], len={len(seq)}"
         xt = x_T
         xt = xt.to(x_T.device)
@@ -256,7 +252,9 @@ class DiffusionPartialSampling(Diffusion):
         seq_next = [-1] + list(seq[:-1])
         for i, j in zip(reversed(seq), reversed(seq_next)):
             if i % 50 == 0:
-                logging.info(f"generalized_steps(): {msg}; i={i}")
+                itr = 1000 - i
+                elp, rmn = self.get_time_ttl_and_eta(self.time_start, r_idx * 1000 + itr, r_cnt * 1000)
+                logging.info(f"generalized_steps(): {msg}; i={i}. round:{r_idx}/{r_cnt}, elp:{elp}, eta:{rmn}")
             t = (torch.ones(img_cnt) * i).to(x_T.device)  # [999., 999.]
             q = (torch.ones(img_cnt) * j).to(x_T.device)  # [998., 998.]. next t; can assume as t-1
             at = self.cumprod_1001.index_select(0, t.long() + 1).view(-1, 1, 1, 1)  # alpha_t
@@ -268,7 +266,7 @@ class DiffusionPartialSampling(Diffusion):
             xt_next = aq.sqrt() * x0 + c2 * et + sigma_t * torch.randn_like(x_T)  # formula (12)
             xt = xt_next
             if i in ts_list:
-                self.save_xt(xt, i, r_cnt, r_idx, b_sz)
+                self.save_xt(xt, i, r_idx, b_sz)
 
         return xt
 
