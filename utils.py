@@ -1,6 +1,9 @@
 import argparse
 import torch.nn as nn
 import math
+import os
+import datetime
+import time
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -37,3 +40,50 @@ def convert_size_str(size_bytes):
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
     return "%s %s" % (s, size_name[i])
+
+def extract_ts_range(path):
+    """
+    Extract timestamp range from file path string
+    :param path: "./exp/model_stack_epoch500/ckpt_750-1000.pth"
+    :return:
+    """
+    base = os.path.basename(path)       # ckpt_750-1000.pth
+    stem, _ = os.path.splitext(base)    # ckpt_750-1000
+    temp = stem.split("_")              # [ckpt, 750-1000]
+    nums = temp[-1].split("-")          # ["750", "1000"]
+    if len(nums) != 2:
+        raise ValueError(f"Cannot find timestamp range from ckpt file: {path}")
+    return [int(nums[0]), int(nums[1])]
+
+def log_info(*args):
+    dtstr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    print(f"[{dtstr}]", *args)
+
+def get_time_ttl_and_eta(time_start, elapsed_iter, total_iter):
+    """
+    Get estimated total time and ETA time.
+    :param time_start:
+    :param elapsed_iter:
+    :param total_iter:
+    :return: string of elapsed time, string of ETA
+    """
+
+    def sec_to_str(sec):
+        val = int(sec)  # seconds in int type
+        s = val % 60
+        val = val // 60  # minutes
+        m = val % 60
+        val = val // 60  # hours
+        h = val % 24
+        d = val // 24  # days
+        return f"{d}-{h:02d}:{m:02d}:{s:02d}"
+
+    elapsed_time = time.time() - time_start  # seconds elapsed
+    elp = sec_to_str(elapsed_time)
+    if elapsed_iter == 0:
+        eta = 'NA'
+    else:
+        # seconds
+        eta = elapsed_time * (total_iter - elapsed_iter) / elapsed_iter
+        eta = sec_to_str(eta)
+    return elp, eta

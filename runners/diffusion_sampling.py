@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import torch
 
+import utils
 from datasets import inverse_data_transform
 from functions.ckpt_util import get_ckpt_path
 from models.diffusion import Model, ModelStack
@@ -198,7 +199,7 @@ class DiffusionSampling(Diffusion):
         x = self.sample_image(x_t, model)
         x = inverse_data_transform(config, x)
         img_cnt = len(x)
-        elp, eta = self.get_time_ttl_and_eta(time_start, r_idx+1, n_rounds)
+        elp, eta = utils.get_time_ttl_and_eta(time_start, r_idx+1, n_rounds)
         img_dir = self.args.sample_output_dir
         logging.info(f"save {img_cnt} images to: {img_dir}. round:{r_idx}/{n_rounds}, elp:{elp}, eta:{eta}")
         img_first = img_last = None

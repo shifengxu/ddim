@@ -6,10 +6,12 @@ import numpy as np
 import torch
 import torch.utils.data as data
 import torchvision.utils as tvu
+
+import utils
 from datasets import get_dataset, data_transform, inverse_data_transform
 from models.diffusion import ModelStack, Model
 from runners.diffusion import Diffusion
-from utils import count_parameters
+from utils import count_parameters, extract_ts_range
 
 
 """
@@ -44,9 +46,10 @@ class DiffusionPartialSampling(Diffusion):
     # ************************************************************************* gen xt from gaussian noise
     def gen_xt_from_gn(self):
         config = self.config
-        if self.args.sample_stack_size > 1:
-            model = ModelStack(config, self.args.sample_stack_size)
-            model = self.model_stack_load_from_local(model)
+        ckpt_path_arr = self.get_ckpt_path_arr()
+        if len(ckpt_path_arr) > 1:
+            model = ModelStack(config, len(ckpt_path_arr))
+            model = self.model_stack_load_from_local(model, ckpt_path_arr)
         else:
             model = Model(config)
             model = self.model_load_from_local(model)
@@ -88,6 +91,15 @@ class DiffusionPartialSampling(Diffusion):
             # for r_idx
         # with
 
+    def get_ckpt_path_arr(self):
+        root_dir = self.args.sample_ckpt_dir
+        ckpt_path_arr = []
+        for fname in os.listdir(root_dir):
+            if fname.startswith("ckpt") and fname.endswith(".pth"):
+                ckpt_path_arr.append(os.path.join(root_dir, fname))
+        ckpt_path_arr.sort()
+        return ckpt_path_arr
+
     def model_load_from_local(self, model):
         if self.args.sample_ckpt_path:
             ckpt_path = self.args.sample_ckpt_path
@@ -108,56 +120,7 @@ class DiffusionPartialSampling(Diffusion):
         logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
         return model
 
-    def model_stack_load_from_local(self, model: ModelStack):
-        root_dir = self.args.sample_ckpt_dir
-        if self.args.sample_stack_size == 10:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-100.pth"),
-                os.path.join(root_dir, "ckpt_100-200.pth"),
-                os.path.join(root_dir, "ckpt_200-300.pth"),
-                os.path.join(root_dir, "ckpt_300-400.pth"),
-                os.path.join(root_dir, "ckpt_400-500.pth"),
-                os.path.join(root_dir, "ckpt_500-600.pth"),
-                os.path.join(root_dir, "ckpt_600-700.pth"),
-                os.path.join(root_dir, "ckpt_700-800.pth"),
-                os.path.join(root_dir, "ckpt_800-900.pth"),
-                os.path.join(root_dir, "ckpt_900-1000.pth"),
-            ]
-        elif self.args.sample_stack_size == 8:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-125.pth"),
-                os.path.join(root_dir, "ckpt_125-250.pth"),
-                os.path.join(root_dir, "ckpt_250-375.pth"),
-                os.path.join(root_dir, "ckpt_375-500.pth"),
-                os.path.join(root_dir, "ckpt_500-625.pth"),
-                os.path.join(root_dir, "ckpt_625-750.pth"),
-                os.path.join(root_dir, "ckpt_750-875.pth"),
-                os.path.join(root_dir, "ckpt_875-1000.pth"),
-            ]
-        elif self.args.sample_stack_size == 4:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-250.pth"),
-                os.path.join(root_dir, "ckpt_250-500.pth"),
-                os.path.join(root_dir, "ckpt_500-750.pth"),
-                os.path.join(root_dir, "ckpt_750-1000.pth"),
-            ]
-        else:  # other cases, need manual handling.
-            ckpt_path_arr = [
-                # f"{root_dir}/exp/model_S10E200/ckpt_000-100.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_100-200.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_200-300.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_300-400.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_400-500.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_500-600.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_600-700.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_700-800.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_800-900.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_900-1000.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_000-250.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_250-500.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_500-750.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_750-1000.pth",
-            ]
+    def model_stack_load_from_local(self, model: ModelStack, ckpt_path_arr):
         cnt, str_cnt = count_parameters(model, log_fn=None)
         logging.info(f"Loading ModelStack(stack_sz: {model.stack_sz})")
         logging.info(f"  config type  : {self.config.model.type}")
@@ -165,7 +128,8 @@ class DiffusionPartialSampling(Diffusion):
         logging.info(f"  ckpt_path_arr: {len(ckpt_path_arr)}")
         ms = model.model_stack
         for i, ckpt_path in enumerate(ckpt_path_arr):
-            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}")
+            model.tsr_stack[i] = extract_ts_range(ckpt_path)
+            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}. ts: {model.tsr_stack[i]}")
             states = torch.load(ckpt_path, map_location=self.config.device)
             if isinstance(states, dict):
                 # This is for backward-compatibility. As previously, the states is a list ([]).
@@ -255,7 +219,7 @@ class DiffusionPartialSampling(Diffusion):
         for i, j in zip(reversed(seq), reversed(seq_next)):
             if i % 50 == 0:
                 itr = 1000 - i
-                elp, rmn = self.get_time_ttl_and_eta(self.time_start, r_idx * 1000 + itr, r_cnt * 1000)
+                elp, rmn = utils.get_time_ttl_and_eta(self.time_start, r_idx * 1000 + itr, r_cnt * 1000)
                 logging.info(f"generalized_steps(): {msg}; i={i}. round:{r_idx}/{r_cnt}, elp:{elp}, eta:{rmn}")
             if i < ts_min:
                 break

@@ -24,6 +24,7 @@ def parse_args_and_config():
 
     parser.add_argument("--config", type=str, default='cifar10.yml', help="Path to the config file")
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0, 1, 2])
+    parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
@@ -61,6 +62,7 @@ def parse_args_and_config():
     parser.add_argument("--skip_type", type=str, default="uniform",
                         help="skip according to (uniform or quadratic)")
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
+    parser.add_argument("--beta_schedule", type=str, default="cosine")
     parser.add_argument("--eta", type=float, default=0.0,
                         help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")

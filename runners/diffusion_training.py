@@ -5,6 +5,7 @@ import time
 import torch
 from torch.backends import cudnn
 
+import utils
 from datasets import get_dataset, data_transform
 from functions import get_optimizer
 from functions.losses import noise_estimation_loss2
@@ -66,7 +67,7 @@ class DiffusionTraining(Diffusion):
         else:
             e_cnt = self.config.training.n_epochs
         self.model.to(self.device)
-        self.optimizer = get_optimizer(self.config, self.model.parameters())
+        self.optimizer = get_optimizer(self.config, self.model.parameters(), self.args.lr)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=e_cnt)
 
         if self.ema_flag:
@@ -118,7 +119,7 @@ class DiffusionTraining(Diffusion):
                 loss_cnt += 1
 
                 if i % log_interval == 0 or i == b_cnt - 1:
-                    elp, eta = self.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
+                    elp, eta = utils.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
                     var, mean = torch.var_mean(xt)
                     logging.info(f"E:{epoch}/{e_cnt}, B:{i:3d}/{b_cnt}, loss:{loss.item():8.4f};"
                                  f" xt_mean:{mean:7.4f}; xt_var:{var:6.4f}; elp:{elp}; eta:{eta}")

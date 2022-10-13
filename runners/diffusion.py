@@ -1,20 +1,8 @@
-import os
 import logging
-import time
+import math
 
 import numpy as np
 import torch
-import torch.utils.data as data
-import torch.backends.cudnn as cudnn
-
-from models.diffusion import Model, ModelStack
-from models.ema import EMAHelper
-from functions import get_optimizer
-from functions.losses import loss_registry
-from datasets import get_dataset, data_transform
-
-
-from utils import count_parameters
 
 
 def torch2hwcuint8(x, clip=False):
@@ -64,20 +52,14 @@ class Diffusion(object):
         if device is None:
             device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.device = device
-
         self.model_var_type = config.model.var_type
-        betas = get_beta_schedule(
-            beta_schedule=config.diffusion.beta_schedule,
-            beta_start=config.diffusion.beta_start,
-            beta_end=config.diffusion.beta_end,
-            num_diffusion_timesteps=config.diffusion.num_diffusion_timesteps,
-        )
-        betas = self.betas = torch.from_numpy(betas).float().to(self.device)
-        self.num_timesteps = betas.shape[0]
         logging.info(f"Diffusion() ========================")
         logging.info(f"  device        : {self.device}")
         logging.info(f"  model_var_type: {self.model_var_type}")
-        logging.info(f"  num_timesteps : {self.num_timesteps}")
+
+        self.beta_schedule = args.beta_schedule or config.diffusion.beta_schedule
+        self.alphas, self.alphas_cumprod, self.betas = self.get_alphas_and_betas(config)
+        self.num_timesteps = self.betas.shape[0]
         ts_range = args.ts_range
         if len(ts_range) == 0:
             ts_range = [0, self.num_timesteps]
@@ -86,44 +68,68 @@ class Diffusion(object):
         self._ts_log_flag = False   # only internal flag
         logging.info(f"  ts_low        : {self.ts_low}")
         logging.info(f"  ts_high       : {self.ts_high}")
+        logging.info(f"  num_timesteps : {self.num_timesteps}")
+        logging.info(f"  beta_schedule : {self.beta_schedule}")
+        self.output_alphas_and_betas()
 
-        self.alphas = 1.0 - betas
-        self.alphas_cumprod = ac = self.alphas.cumprod(dim=0)
-        alphas_cumprod_prev = torch.cat([torch.ones(1).to(device), ac[:-1]], dim=0)
-        posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - ac)
         if self.model_var_type == "fixedlarge":
-            self.logvar = betas.log()
+            self.logvar = self.betas.log()
             # torch.cat(
             # [posterior_variance[1:2], betas[1:]], dim=0).log()
         elif self.model_var_type == "fixedsmall":
+            ac = self.alphas_cumprod
+            alphas_cumprod_prev = torch.cat([torch.ones(1).to(device), ac[:-1]], dim=0)
+            posterior_variance = self.betas * (1.0 - alphas_cumprod_prev) / (1.0 - ac)
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
-    @staticmethod
-    def get_time_ttl_and_eta(time_start, elapsed_iter, total_iter):
-        """
-        Get estimated total time and ETA time.
-        :param time_start:
-        :param elapsed_iter:
-        :param total_iter:
-        :return: string of elapsed time, string of ETA
-        """
-
-        def sec_to_str(sec):
-            val = int(sec)  # seconds in int type
-            s = val % 60
-            val = val // 60  # minutes
-            m = val % 60
-            val = val // 60  # hours
-            h = val % 24
-            d = val // 24  # days
-            return f"{d}-{h:02d}:{m:02d}:{s:02d}"
-
-        elapsed_time = time.time() - time_start  # seconds elapsed
-        elp = sec_to_str(elapsed_time)
-        if elapsed_iter == 0:
-            eta = 'NA'
+    def get_alphas_and_betas(self, config):
+        device = self.device
+        ts_cnt = config.diffusion.num_diffusion_timesteps
+        if self.beta_schedule == "cosine":
+            # cosine scheduler is from the following paper:
+            # ICML. 2021. Alex Nichol. Improved Denoising Diffusion Probabilistic Models
+            # In this option, it composes alphas_cumprod firstly, then alphas and betas.
+            alphas_cumprod = [] # alpha cumulate array
+            for i in range(ts_cnt):
+                t = i / ts_cnt
+                ac = math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
+                alphas_cumprod.append(ac)
+            alphas_cumprod = torch.Tensor(alphas_cumprod).float().to(device)
+            divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
+            alphas = torch.div(alphas_cumprod, divisor)
+            betas = 1 - alphas
         else:
-            # seconds
-            eta = elapsed_time * (total_iter - elapsed_iter) / elapsed_iter
-            eta = sec_to_str(eta)
-        return elp, eta
+            betas = get_beta_schedule(
+                beta_schedule=self.beta_schedule,
+                beta_start=config.diffusion.beta_start,
+                beta_end=config.diffusion.beta_end,
+                num_diffusion_timesteps=ts_cnt,
+            )
+            betas = torch.from_numpy(betas).float().to(device)
+            alphas = 1.0 - betas
+            alphas_cumprod = alphas.cumprod(dim=0)
+        return alphas, alphas_cumprod, betas
+
+    def output_alphas_and_betas(self):
+        def num2str(num_arr):
+            flt_arr = [float(n) for n in num_arr]       # tensor to float
+            str_arr = [f"{f:.6f}"[1:] for f in flt_arr] # float to string. 0.0001 => ".000100"
+            return " ".join(str_arr)
+
+        cnt = len(self.betas)
+        itv = 10    # interval
+        i = 0
+        while i < cnt:
+            r = min(i+itv, cnt)  # right bound
+            logging.info(f"betas[{i:03d}~{r:03d}]:\t{num2str(self.betas[i:r])}")
+            i += itv
+        i = 0
+        while i < cnt:
+            r = min(i+itv, cnt)  # right bound
+            logging.info(f"alphas[{i:03d}~{r:03d}]:\t{num2str(self.alphas[i:r])}")
+            i += itv
+        i = 0
+        while i < cnt:
+            r = min(i+itv, cnt)  # right bound
+            logging.info(f"alphas_cumprod[{i:03d}~{r:03d}]:\t{num2str(self.alphas_cumprod[i:r])}")
+            i += itv

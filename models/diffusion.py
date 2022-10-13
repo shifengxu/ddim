@@ -354,12 +354,14 @@ class ModelStack(nn.Module):
         self.stack_sz = stack_size
         self.ts_cnt = config.diffusion.num_diffusion_timesteps
         self.model_stack = nn.ModuleList()
+        self.tsr_stack = []          # timestamp range stack
         self.brick_hit_counter = []  # track hit count of each brick
+        self.brick_cvg = self.ts_cnt // self.stack_sz  # brick coverage: one brick cover how many timesteps
         for i in range(self.stack_sz):
             model = Model(config)
             self.model_stack.append(model)
+            self.tsr_stack.append([i*self.brick_cvg, (i+1)*self.brick_cvg])
             self.brick_hit_counter.append(0)
-        self.brick_cvg = self.ts_cnt // self.stack_sz  # brick coverage: one brick cover how many timesteps
         logging.info(f"ModelStack()...")
         logging.info(f"  stack_sz : {self.stack_sz}")
         logging.info(f"  ts_cnt   : {self.ts_cnt}")
@@ -374,10 +376,10 @@ class ModelStack(nn.Module):
         :param ts: timestep
         :return:  brick index
         """
-        idx = ts // self.brick_cvg
-        if idx >= self.stack_sz:
-            idx = self.stack_sz - 1
-        return idx
+        for i, (stt, end) in enumerate(self.tsr_stack):
+            if stt <= ts < end:
+                return i
+        raise Exception(f"Not found brick index by ts: {ts}")
 
     def forward(self, x, t):
         t0 = t
