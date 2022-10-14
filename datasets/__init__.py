@@ -5,6 +5,7 @@ import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from torchvision.datasets import CIFAR10
 from datasets.celeba import CelebA
+from datasets.ffhq_latent import FFHQ_Latent
 from datasets.ffhq import FFHQ
 from datasets.lsun import LSUN
 from torch.utils.data import Subset
@@ -57,6 +58,10 @@ def get_dataset(args, config):
             download=True,
             transform=test_transform,
         )
+
+    elif config.data.dataset == "FFHQ_Latent":
+        dataset = FFHQ_Latent(root=args.data_dir)
+        test_dataset = dataset
 
     elif config.data.dataset == "CELEBA":
         cx = 89
