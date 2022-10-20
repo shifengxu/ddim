@@ -1,18 +1,18 @@
 data:
     dataset: "FFHQ_Latent"
     image_size: 16
-    channels: 10
+    channels: 5
     logit_transform: false
     uniform_dequantization: false
     gaussian_dequantization: false
     random_flip: true
-    rescaled: true
+    rescaled: false
     num_workers: 4
 
 model:
     type: "simple"
-    in_channels: 10
-    out_ch: 10
+    in_channels: 5
+    out_ch: 5
     ch: 128
     ch_mult: [1, 2, 2, 2]
     num_res_blocks: 2

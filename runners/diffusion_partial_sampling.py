@@ -33,15 +33,15 @@ class DiffusionPartialSampling(Diffusion):
 
     def run(self):
         args, config = self.args, self.config
-        logging.info(f"psample: {args.psample}")
+        logging.info(f"psample: {args.psample_type}")
         logging.info(f"  psample_dir    : {args.psample_dir}")
         logging.info(f"  psample_ts_list: {args.psample_ts_list}")
-        if args.psample == 'from_x0':
+        if args.psample_type == 'from_x0':
             return self.gen_xt_from_x0(args, config)
-        elif args.psample == 'from_gn':  # from Gaussian Noise
+        elif args.psample_type == 'from_gn':  # from Gaussian Noise
             return self.gen_xt_from_gn()
         else:
-            raise NotImplementedError(f"Invalid psample: {args.psample}")
+            raise NotImplementedError(f"Invalid psample_type: {args.psample_type}")
 
     # ************************************************************************* gen xt from gaussian noise
     def gen_xt_from_gn(self):

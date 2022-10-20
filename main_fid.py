@@ -15,6 +15,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=0, help="Random seed. 0 means ignore")
     parser.add_argument('--input1', type=str, default="./exp/psmpl_S4E1000TSxxx")
     parser.add_argument('--input2', type=str, default="./exp/psmpl_from_x0")
+    parser.add_argument('--mode', type=str, default="simple")
     args = parser.parse_args()
 
     gpu_ids = args.gpu_ids
@@ -72,17 +73,10 @@ def init_fdc_arr(dir1, dir2, expected_fc=50000):
     fdc_arr.sort(key=lambda x: x.ts)
     return fdc_arr
 
-def main():
-    args = parse_args()
-    log_fn(f"args: {args}")
-
-    dir1 = args.input1
-    dir2 = args.input2
+def mode_massive(dir1, dir2):
     fdc_arr = init_fdc_arr(dir1, dir2)
 
     dir_cnt = len(fdc_arr)
-    log_fn(f"dir1   : {dir1}")
-    log_fn(f"dir2   : {dir2}")
     log_fn(f"dir_cnt: {dir_cnt}")
     log_fn(f"torch_fidelity.calculate_metrics()...")
     time_start = time.time()
@@ -97,6 +91,7 @@ def main():
             fid=True,
             kid=False,
             verbose=False,
+            samples_find_deep=True,
         )
         fdc.fid = metrics_dict['frechet_inception_distance']
         elp, rmn = utils.get_time_ttl_and_eta(time_start, i+1, dir_cnt)
@@ -108,6 +103,30 @@ def main():
             log_fn(s)
             f.write(f"{s}\n")
     # with
+
+def main():
+    args = parse_args()
+    log_fn(f"DDIM-FID ==================================================")
+    log_fn(f"args: {args}")
+
+    dir1 = args.input1
+    dir2 = args.input2
+    log_fn(f"dir1   : {dir1}")
+    log_fn(f"dir2   : {dir2}")
+    if args.mode == 'simple':
+        metrics_dict = torch_fidelity.calculate_metrics(
+            input1=dir1,
+            input2=dir2,
+            cuda=True,
+            isc=False,
+            fid=True,
+            kid=False,
+            verbose=False,
+            samples_find_deep=True,
+        )
+        log_fn(f"FID: {metrics_dict['frechet_inception_distance']:.6f}")
+    else:
+        mode_massive(dir1, dir2)
 
     return 0
 

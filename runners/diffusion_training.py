@@ -47,7 +47,10 @@ class DiffusionTraining(Diffusion):
             shuffle=True,
             num_workers=config.data.num_workers,
         )
-        self.model = Model(config)
+        in_channels = args.model_in_channels
+        out_channels = args.model_in_channels
+        resolution = args.data_resolution
+        self.model = Model(config, in_channels=in_channels, out_channels=out_channels, resolution=resolution)
         # model = ModelStack(config)
         cnt, str_cnt = count_parameters(self.model, log_fn=None)
         model_name = type(self.model).__name__
@@ -89,6 +92,7 @@ class DiffusionTraining(Diffusion):
 
         b_cnt = len(train_loader)
         eb_cnt = e_cnt * b_cnt  # epoch * batch
+        loss_avg_arr = []
         data_start = time.time()
         self.model.train()
         log_interval = 1 if model_name == 'ModelStack' else 10
@@ -99,7 +103,7 @@ class DiffusionTraining(Diffusion):
             lr = self.scheduler.get_last_lr()[0]
             msg = f"lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}];"
             if self.ema_flag: msg += f" ema_start_epoch={self.ema_start_epoch}, ema_rate={self.ema_rate}"
-            logging.info(f"Epoch {epoch} ---------- {msg}")
+            logging.info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
             if self.ema_flag and self.ema_start_epoch == epoch:
                 logging.info(f"EMA register...")
                 self.ema_helper.register(self.model)
@@ -108,6 +112,8 @@ class DiffusionTraining(Diffusion):
             for i, (x, y) in enumerate(train_loader):
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
+                if i % log_interval == 0 or i == b_cnt - 1:
+                    var0, mean0 = torch.var_mean(x)
                 e = torch.randn_like(x)
 
                 # antithetic sampling
@@ -121,19 +127,20 @@ class DiffusionTraining(Diffusion):
                 if i % log_interval == 0 or i == b_cnt - 1:
                     elp, eta = utils.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
                     var, mean = torch.var_mean(xt)
-                    logging.info(f"E:{epoch}/{e_cnt}, B:{i:3d}/{b_cnt}, loss:{loss.item():8.4f};"
-                                 f" xt_mean:{mean:7.4f}; xt_var:{var:6.4f}; elp:{elp}; eta:{eta}")
+                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():8.4f};"
+                                 f" x0:{mean0:7.4f} {var0:6.4f}; xt:{mean:7.4f} {var:6.4f};"
+                                 f" elp:{elp}, eta:{eta}")
 
-                step = epoch * b_cnt + i + 1
-                tb_logger.add_scalar("loss", loss, global_step=step)
-                if step % self.config.training.snapshot_freq == 0 or step == 1 \
-                        or epoch == e_cnt - 1 and i == b_cnt - 1:
-                    self.save_model(epoch, i)
-            # for
+            # for loader
             loss_avg = loss_ttl / loss_cnt
             logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f}")
+            loss_avg_arr.append(loss_avg)
             # self.scheduler.step()
-        # for
+            if epoch % 20 == 0 or epoch == e_cnt - 1:
+                self.save_model(epoch)
+        # for epoch
+        utils.output_list(loss_avg_arr, 'loss_avg')
+    # train(self)
 
     def train_model(self, x, epsilon, epoch):
         """
@@ -228,7 +235,7 @@ class DiffusionTraining(Diffusion):
             logging.info(f"  resume ema_helper : mu={self.ema_helper.mu:8.6f}")
         return start_epoch
 
-    def save_model(self, e_idx, b_idx):
+    def save_model(self, e_idx):
         real_model = self.model
         if isinstance(real_model, torch.nn.DataParallel):
             real_model = real_model.module
@@ -241,7 +248,7 @@ class DiffusionTraining(Diffusion):
         if self.ema_flag and self.ema_helper:
             states['ema_helper'] = self.ema_helper.state_dict()
 
-        fpath = os.path.join(self.args.log_path, f"ckpt_E{e_idx:04d}_B{b_idx:04d}.pth")
+        fpath = os.path.join(self.args.log_path, f"ckpt_E{e_idx:04d}.pth")
         logging.info(f"save ckpt dict: {fpath}")
         torch.save(states, fpath)
         fpath = os.path.join(self.args.log_path, f"ckpt_{self.ts_low:03d}-{self.ts_high:03d}.pth")

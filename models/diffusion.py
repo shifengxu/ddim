@@ -191,14 +191,15 @@ class AttnBlock(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, in_channels=0, out_channels=0, resolution=0):
         super().__init__()
         self.config = config
-        ch, out_ch, ch_mult = config.model.ch, config.model.out_ch, tuple(config.model.ch_mult)
+        ch, ch_mult = config.model.ch, tuple(config.model.ch_mult)
         attn_resolutions = config.model.attn_resolutions
         dropout = config.model.dropout
-        in_channels = config.model.in_channels
-        resolution = config.data.image_size
+        in_channels = in_channels or config.model.in_channels
+        out_ch = out_channels or config.model.out_ch
+        resolution = resolution or config.data.image_size
         resamp_with_conv = config.model.resamp_with_conv
         num_timesteps = config.diffusion.num_diffusion_timesteps
         

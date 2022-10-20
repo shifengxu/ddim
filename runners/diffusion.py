@@ -58,6 +58,7 @@ class Diffusion(object):
         logging.info(f"  model_var_type: {self.model_var_type}")
 
         self.beta_schedule = args.beta_schedule or config.diffusion.beta_schedule
+        self.beta_cos_expo = args.beta_cos_expo
         self.alphas, self.alphas_cumprod, self.betas = self.get_alphas_and_betas(config)
         self.num_timesteps = self.betas.shape[0]
         ts_range = args.ts_range
@@ -70,6 +71,7 @@ class Diffusion(object):
         logging.info(f"  ts_high       : {self.ts_high}")
         logging.info(f"  num_timesteps : {self.num_timesteps}")
         logging.info(f"  beta_schedule : {self.beta_schedule}")
+        logging.info(f"  beta_cos_expo : {self.beta_cos_expo}")
         self.output_alphas_and_betas()
 
         if self.model_var_type == "fixedlarge":
@@ -92,7 +94,7 @@ class Diffusion(object):
             alphas_cumprod = [] # alpha cumulate array
             for i in range(ts_cnt):
                 t = i / ts_cnt
-                ac = math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
+                ac = math.cos((t + 0.008) / 1.008 * math.pi / 2) ** self.beta_cos_expo
                 alphas_cumprod.append(ac)
             alphas_cumprod = torch.Tensor(alphas_cumprod).float().to(device)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)

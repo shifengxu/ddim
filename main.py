@@ -13,6 +13,7 @@ from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
+from runners.diffusion_latent_sampling import DiffusionLatentSampling
 
 from utils import str2bool
 
@@ -22,8 +23,8 @@ torch.set_printoptions(sci_mode=False)
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
 
-    parser.add_argument("--config", type=str, default='cifar10.yml', help="Path to the config file")
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0, 1, 2])
+    parser.add_argument("--config", type=str, default='./configs/ffhq_latent.yml')
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
     parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
@@ -35,22 +36,23 @@ def parse_args_and_config():
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
     parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
     parser.add_argument('--ema_start_epoch', type=int, default=50, help='EMA start epoch')
+    parser.add_argument("--model_in_channels", type=int, default='0', help='model.in_channels')
+    parser.add_argument("--data_resolution", type=int, default='0', help='data.resolution')
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/model_sampling/ckpt_E0984_B0055.pth')
-    parser.add_argument("--test", type=str2bool, default=False, help="Whether to test the model")
-    parser.add_argument("--sample", type=str2bool, default=False, help="Whether to produce samples")
+    parser.add_argument("--todo", type=str, default='lsample', help="train|sample|psample|lsample")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_dir", type=str, default='./exp/model_S4E1000TSxxx')
     parser.add_argument("--sample_batch_size", type=int, default='500', help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
     parser.add_argument("--sample_stack_size", type=int, default=4, help="model stack size when sampling")
-    parser.add_argument("--psample", type=str, default="", help="Partial Sampling")
     parser.add_argument('--psample_ts_list', nargs='+', type=int, help='0 means x0',
                         default=[50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 0, 1000])
     parser.add_argument('--psample_dir', type=str, default="./exp/partialSample")
+    parser.add_argument('--psample_type', type=str, default='from_x0', help='from_x0|from_gn')
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", type=str2bool, default=False)
@@ -63,6 +65,7 @@ def parse_args_and_config():
                         help="skip according to (uniform or quadratic)")
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
     parser.add_argument("--beta_schedule", type=str, default="cosine")
+    parser.add_argument("--beta_cos_expo", type=float, default=2, help="beta cosine exponential")
     parser.add_argument("--eta", type=float, default=0.0,
                         help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")
@@ -73,7 +76,7 @@ def parse_args_and_config():
         os.makedirs(args.log_path)
 
     # parse config file
-    with open(os.path.join("configs", args.config), "r") as f:
+    with open(args.config, "r") as f:
         config = yaml.safe_load(f)
 
     new_config = dict2namespace(config)
@@ -90,7 +93,7 @@ def parse_args_and_config():
     if not isinstance(level, int):
         raise ValueError("log level {} not supported".format(args.verbose))
     logger.setLevel(level)
-    if not args.test and not args.sample:
+    if 'test' not in args.todo and 'sample' not in args.todo:
         handler2 = logging.FileHandler(os.path.join(args.log_path, "stdout.txt"))
         handler2.setFormatter(formatter)
         logger.addHandler(handler2)
@@ -98,7 +101,7 @@ def parse_args_and_config():
             renew_log_dir(args, tb_path, new_config)
 
         new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
-    elif args.sample:
+    elif args.todo == 'sample':
         os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
         if not os.path.exists(args.sample_output_dir):
             print(f"mkdir: {args.sample_output_dir}")
@@ -198,22 +201,28 @@ def main():
     logging.info(f"args: {args}")
 
     try:
-        if args.psample:
+        if args.todo == 'psample':
             logging.info(f"partial sample ===========================")
             runner = DiffusionPartialSampling(args, config, device=config.device)
             runner.run()
-        elif args.sample:
+        elif args.todo == 'lsample':
+            logging.info(f"latent sample ===========================")
+            runner = DiffusionLatentSampling(args, config, device=config.device)
+            runner.sample()
+        elif args.todo == 'sample':
             logging.info(f"sample ===================================")
             runner = DiffusionSampling(args, config, device=config.device)
             runner.sample()
-        elif args.test:
+        elif args.todo == 'test':
             logging.info(f"test ===================================")
             runner = DiffusionTesting(args, config, device=config.device)
             runner.test()
-        else:
+        elif args.todo == 'train':
             logging.info(f"train ===================================")
             runner = DiffusionTraining(args, config, device=config.device)
             runner.train()
+        else:
+            raise Exception(f"Invalid todo: {args.todo}")
     except Exception:
         logging.error(traceback.format_exc())
 
