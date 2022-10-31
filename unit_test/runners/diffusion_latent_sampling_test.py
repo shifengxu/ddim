@@ -40,6 +40,8 @@ class DiffusionLatentSamplingTest(unittest.TestCase):
             print(f"validate: {f_path}")
             tmp = np.load(f_path)
             self.assertEqual((x_t[i].numpy() == tmp).all(), True)
+            tmp[:] = -1 # test negative case
+            self.assertEqual((x_t[i].numpy() == tmp).all(), False)
         # for
 
 if __name__ == '__main__':
