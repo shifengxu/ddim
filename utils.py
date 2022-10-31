@@ -106,3 +106,14 @@ def output_list(lst, name, log_fn=log_info):
     for i in range(0, cnt, 10):
         r = min(i+10, cnt)  # right bound
         log_fn(f"{name}[{i:03d}~{r:03d}]: {num2str(lst[i:r])}")
+
+def dict2namespace(config):
+    namespace = argparse.Namespace()
+    for key, value in config.items():
+        if isinstance(value, dict):
+            new_value = dict2namespace(value)
+        else:
+            new_value = value
+        setattr(namespace, key, new_value)
+    return namespace
+

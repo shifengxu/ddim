@@ -15,7 +15,7 @@ from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
 from runners.diffusion_latent_sampling import DiffusionLatentSampling
 
-from utils import str2bool
+from utils import str2bool, dict2namespace
 
 torch.set_printoptions(sci_mode=False)
 
@@ -66,6 +66,7 @@ def parse_args_and_config():
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
     parser.add_argument("--beta_schedule", type=str, default="cosine")
     parser.add_argument("--beta_cos_expo", type=float, default=2, help="beta cosine exponential")
+    parser.add_argument("--beta_noise_rg", nargs='+', type=float, default=[], help='noise range for linnoise')
     parser.add_argument("--eta", type=float, default=0.0,
                         help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")
@@ -102,7 +103,7 @@ def parse_args_and_config():
 
         new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
     elif args.todo == 'sample':
-        os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
+        # os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
         if not os.path.exists(args.sample_output_dir):
             print(f"mkdir: {args.sample_output_dir}")
             os.makedirs(args.sample_output_dir)
@@ -180,17 +181,6 @@ def renew_log_dir(args, tb_path, new_config):
 
     with open(os.path.join(args.log_path, "config.yml"), "w") as f:
         yaml.dump(new_config, f, default_flow_style=False)
-
-
-def dict2namespace(config):
-    namespace = argparse.Namespace()
-    for key, value in config.items():
-        if isinstance(value, dict):
-            new_value = dict2namespace(value)
-        else:
-            new_value = value
-        setattr(namespace, key, new_value)
-    return namespace
 
 
 def main():

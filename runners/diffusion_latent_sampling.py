@@ -6,15 +6,8 @@ import numpy as np
 import torch
 
 import utils
-from datasets import inverse_data_transform
-from functions.ckpt_util import get_ckpt_path
 from models.diffusion import Model, ModelStack
 from runners.diffusion import Diffusion
-
-import torchvision.utils as tvu
-
-from utils import count_parameters
-
 
 class DiffusionLatentSampling(Diffusion):
     def __init__(self, args, config, device=None):
@@ -42,83 +35,9 @@ class DiffusionLatentSampling(Diffusion):
         logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
         return model
 
-    def model_stack_load_from_local(self, model: ModelStack):
-        root_dir = self.args.sample_ckpt_dir
-        if self.args.sample_stack_size == 10:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-100.pth"),
-                os.path.join(root_dir, "ckpt_100-200.pth"),
-                os.path.join(root_dir, "ckpt_200-300.pth"),
-                os.path.join(root_dir, "ckpt_300-400.pth"),
-                os.path.join(root_dir, "ckpt_400-500.pth"),
-                os.path.join(root_dir, "ckpt_500-600.pth"),
-                os.path.join(root_dir, "ckpt_600-700.pth"),
-                os.path.join(root_dir, "ckpt_700-800.pth"),
-                os.path.join(root_dir, "ckpt_800-900.pth"),
-                os.path.join(root_dir, "ckpt_900-1000.pth"),
-            ]
-        elif self.args.sample_stack_size == 8:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-125.pth"),
-                os.path.join(root_dir, "ckpt_125-250.pth"),
-                os.path.join(root_dir, "ckpt_250-375.pth"),
-                os.path.join(root_dir, "ckpt_375-500.pth"),
-                os.path.join(root_dir, "ckpt_500-625.pth"),
-                os.path.join(root_dir, "ckpt_625-750.pth"),
-                os.path.join(root_dir, "ckpt_750-875.pth"),
-                os.path.join(root_dir, "ckpt_875-1000.pth"),
-            ]
-        elif self.args.sample_stack_size == 4:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-250.pth"),
-                os.path.join(root_dir, "ckpt_250-500.pth"),
-                os.path.join(root_dir, "ckpt_500-750.pth"),
-                os.path.join(root_dir, "ckpt_750-1000.pth"),
-            ]
-        else:  # other cases, need manual handling.
-            ckpt_path_arr = [
-                # f"{root_dir}/exp/model_S10E200/ckpt_000-100.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_100-200.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_200-300.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_300-400.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_400-500.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_500-600.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_600-700.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_700-800.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_800-900.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_900-1000.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_000-250.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_250-500.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_500-750.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_750-1000.pth",
-            ]
-        cnt, str_cnt = count_parameters(model, log_fn=None)
-        logging.info(f"Loading ModelStack(stack_sz: {model.stack_sz})")
-        logging.info(f"  config type  : {self.config.model.type}")
-        logging.info(f"  param size   : {cnt} => {str_cnt}")
-        logging.info(f"  ckpt_path_arr: {len(ckpt_path_arr)}")
-        ms = model.model_stack
-        for i, ckpt_path in enumerate(ckpt_path_arr):
-            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}")
-            states = torch.load(ckpt_path, map_location=self.config.device)
-            if isinstance(states, dict):
-                # This is for backward-compatibility. As previously, the states is a list ([]).
-                # And that was not convenient for adding or dropping items.
-                # Therefore, we change to use dict.
-                ms[i].load_state_dict(states['model'], strict=True)
-            else:
-                ms[i].load_state_dict(states[0], strict=True)
-        # for
-        model = model.to(self.device)
-        model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        return model
-
     def sample(self):
         if self.args.sample_stack_size > 1:
-            model = ModelStack(self.config, self.args.sample_stack_size)
-            model = self.model_stack_load_from_local(model)
+            raise NotImplementedError(f"Not implemented: args.sample_stack_size > 1")
         else:
             in_channels = self.args.model_in_channels
             out_channels = self.args.model_in_channels
@@ -178,7 +97,9 @@ class DiffusionLatentSampling(Diffusion):
         logging.info(f"latent generated. last: {img_last}. "
                      f"init:{self.sample_img_init_id}; cnt:{self.sample_count}")
 
-    def sample_image(self, x, model, last=True):
+    def sample_image(self, x, model):
+        if self.num_timesteps == 0:
+            return x
         if self.args.sample_type == "generalized":
             if self.args.skip_type == "uniform":
                 skip = self.num_timesteps // self.args.timesteps
@@ -188,31 +109,9 @@ class DiffusionLatentSampling(Diffusion):
                 seq = [int(s) for s in list(seq)]
             else:
                 raise NotImplementedError
-            from functions.denoising import generalized_steps
-
-            xs = generalized_steps(x, seq, model, self.betas, eta=self.args.eta)
-            x = xs
-        elif self.args.sample_type == "ddpm_noisy":
-            if self.args.skip_type == "uniform":
-                skip = self.num_timesteps // self.args.timesteps
-                seq = range(0, self.num_timesteps, skip)
-            elif self.args.skip_type == "quad":
-                seq = (
-                    np.linspace(
-                        0, np.sqrt(self.num_timesteps * 0.8), self.args.timesteps
-                    )
-                    ** 2
-                )
-                seq = [int(s) for s in list(seq)]
-            else:
-                raise NotImplementedError
-            from functions.denoising import ddpm_steps
-
-            x = ddpm_steps(x, seq, model, self.betas)
+            xt = self.generalized_steps(x, seq, model, eta=self.args.eta)
+            return xt
         else:
             raise NotImplementedError
-        if last:
-            x = x[0][-1]
-        return x
 
 # class

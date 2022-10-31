@@ -243,6 +243,8 @@ class DiffusionTraining(Diffusion):
             'model': real_model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
+            'beta_schedule': self.beta_schedule,
+            'beta_cos_expo': self.beta_cos_expo,
             'cur_epoch': e_idx
         }
         if self.ema_flag and self.ema_helper:

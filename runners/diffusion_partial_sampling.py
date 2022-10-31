@@ -28,8 +28,6 @@ class DiffusionPartialSampling(Diffusion):
         self.sample_count = args.sample_count
         self.sample_img_init_id = args.sample_img_init_id
         self.time_start = None
-        betas = torch.cat([torch.zeros(1).to(self.betas.device), self.betas], dim=0)
-        self.cumprod_1001 = (1 - betas).cumprod(dim=0)  # has 1001 elements
 
     def run(self):
         args, config = self.args, self.config
@@ -176,20 +174,6 @@ class DiffusionPartialSampling(Diffusion):
 
             kwargs['eta'] = self.args.eta
             x = self.generalized_steps(x, seq, model, **kwargs)
-        elif self.args.sample_type == "ddpm_noisy":
-            if self.args.skip_type == "uniform":
-                skip = self.num_timesteps // self.args.timesteps
-                seq = range(0, self.num_timesteps, skip)
-            elif self.args.skip_type == "quad":
-                seq = np.linspace(0, np.sqrt(self.num_timesteps * 0.8), self.args.timesteps) ** 2
-                seq = [int(s) for s in list(seq)]
-            else:
-                raise NotImplementedError
-            from functions.denoising import ddpm_steps
-
-            x = ddpm_steps(x, seq, model, self.betas)
-            if last:
-                x = x[0][-1]
         else:
             raise NotImplementedError
         return x
@@ -215,8 +199,7 @@ class DiffusionPartialSampling(Diffusion):
         xt = x_T
         xt = xt.to(x_T.device)
         img_cnt = x_T.size(0)
-        seq_next = [-1] + list(seq[:-1])
-        for i, j in zip(reversed(seq), reversed(seq_next)):
+        for i in reversed(seq):
             if i % 50 == 0:
                 itr = 1000 - i
                 elp, rmn = utils.get_time_ttl_and_eta(self.time_start, r_idx * 1000 + itr, r_cnt * 1000)
@@ -224,9 +207,8 @@ class DiffusionPartialSampling(Diffusion):
             if i < ts_min:
                 break
             t = (torch.ones(img_cnt) * i).to(x_T.device)  # [999., 999.]
-            q = (torch.ones(img_cnt) * j).to(x_T.device)  # [998., 998.]. next t; can assume as t-1
-            at = self.cumprod_1001.index_select(0, t.long() + 1).view(-1, 1, 1, 1)  # alpha_t
-            aq = self.cumprod_1001.index_select(0, q.long() + 1).view(-1, 1, 1, 1)  # alpha_{t-1}
+            at = self.alphas_cumprod.index_select(0, t.long()).view(-1, 1, 1, 1)  # alpha_t
+            aq = self.alphas_cumproq.index_select(0, t.long()).view(-1, 1, 1, 1)  # alpha_{t-1}
             et = model(xt, t)  # epsilon_t
             x0 = (xt - et * (1 - at).sqrt()) / at.sqrt()  # formula (9)
             sigma_t = eta * ((1 - at / aq) * (1 - aq) / (1 - at)).sqrt()  # formula (16)

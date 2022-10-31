@@ -36,7 +36,9 @@ class DiffusionSampling(Diffusion):
         else:
             model.load_state_dict(states[0], strict=True)
         model = model.to(self.device)
-        model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
+        if len(self.args.gpu_ids) > 1:
+            logging.info(f"torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
         logging.info(f"model({type(model).__name__})")
         logging.info(f"  model.to({self.device})")
         logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
@@ -326,9 +328,8 @@ class DiffusionSampling(Diffusion):
             tvu.save_image(x0[i], img_path)
 
         # apply diffusion
-        b_seq = self.betas              # beta sequence
-        m_seq = 1 - b_seq               # mean sequence. m = 1 - b
-        a_seq = m_seq.cumprod(dim=0)    # alpha sequence
+        m_seq = self.alphas            # mean sequence. m = 1 - beta
+        a_seq = self.alphas_cumprod    # alpha sequence
         a_t = a_seq[-1]
         xt = torch.randn(  # normal distribution with mean 0 and variance 1
             n,
@@ -339,16 +340,16 @@ class DiffusionSampling(Diffusion):
         )
         gen_by_model = True  # hard coded switch
         if gen_by_model:
-            xt = self.gen_xt_from_x0_by_model(xt, x0, b_seq, m_seq, a_seq, model)
+            xt = self.gen_xt_from_x0_by_model(xt, x0, m_seq, a_seq, model)
         else:
             xt = self.gen_xt_from_x0_by_formula(xt, x0, a_t)
         return xt
 
     @staticmethod
-    def gen_xt_from_x0_by_model(xt, x0, b_seq, m_seq, a_seq, model):
+    def gen_xt_from_x0_by_model(xt, x0, m_seq, a_seq, model):
         x = x0.clone()
         x0_sz = len(x)      # batch size
-        seq_sz = len(b_seq) # sequence size
+        seq_sz = len(m_seq) # sequence size
         for i in range(seq_sz):
             if i % 100 == 0:
                 logging.info(f"gen_xt_from_x0_by_model(): {i:4d}/{seq_sz}")
@@ -383,10 +384,8 @@ class DiffusionSampling(Diffusion):
                 seq = [int(s) for s in list(seq)]
             else:
                 raise NotImplementedError
-            from functions.denoising import generalized_steps
-
-            xs = generalized_steps(x, seq, model, self.betas, eta=self.args.eta)
-            x = xs
+            xt = self.generalized_steps(x, seq, model, eta=self.args.eta)
+            return xt
         elif self.args.sample_type == "ddpm_noisy":
             if self.args.skip_type == "uniform":
                 skip = self.num_timesteps // self.args.timesteps
