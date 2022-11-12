@@ -3,7 +3,7 @@ import torch
 import numbers
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import CIFAR10, ImageFolder
 from datasets.celeba import CelebA
 from datasets.ffhq_latent import FFHQ_Latent
 from datasets.ffhq import FFHQ
@@ -59,9 +59,18 @@ def get_dataset(args, config):
             transform=test_transform,
         )
 
+    elif config.data.dataset in ("FFHQ64", "FFHQ32"):
+        dataset = ImageFolder(root=args.data_dir, transform=tran_transform)
+        if args.test_per_epoch > 0:
+            test_dataset = ImageFolder(root=args.test_data_dir, transform=test_transform)
+        else:
+            test_dataset = dataset
     elif config.data.dataset == "FFHQ_Latent":
         dataset = FFHQ_Latent(root=args.data_dir)
-        test_dataset = dataset
+        if args.test_per_epoch > 0:
+            test_dataset = FFHQ_Latent(root=args.test_data_dir)
+        else:
+            test_dataset = dataset
 
     elif config.data.dataset == "CELEBA":
         cx = 89
@@ -191,6 +200,8 @@ def logit_transform(image, lam=1e-6):
     return torch.log(image) - torch.log1p(-image)
 
 
+_rescale_mean = None
+_rescale_std = None
 def data_transform(config, X):
     if config.data.uniform_dequantization:
         X = X / 256.0 * 255.0 + torch.rand_like(X) / 256.0
@@ -198,7 +209,23 @@ def data_transform(config, X):
         X = X + torch.randn_like(X) * 0.01
 
     if config.data.rescaled:
-        X = 2 * X - 1.0
+        # X = 2 * X - 1.0
+        global _rescale_mean, _rescale_std
+        if _rescale_mean is None:
+            mean = config.data.rescale_mean
+            std  = config.data.rescale_std
+            mean_str = [f"{m:8.6f}" for m in mean]
+            std_str  = [f"{s:8.6f}" for s in std]
+            print(f"data_transform. mean: {', '.join(mean_str)}")
+            print(f"data_transform. std : {', '.join(std_str)}")
+            _rescale_mean = torch.as_tensor(mean, dtype=X.dtype, device=X.device)
+            _rescale_std  = torch.as_tensor(std, dtype=X.dtype, device=X.device)
+            if _rescale_mean.ndim == 1:
+                _rescale_mean = _rescale_mean.view(-1, 1, 1)
+            if _rescale_std.ndim == 1:
+                _rescale_std = _rescale_std.view(-1, 1, 1)
+        X.sub_(_rescale_mean).div_(_rescale_std)
+
     elif config.data.logit_transform:
         X = logit_transform(X)
 
@@ -215,6 +242,21 @@ def inverse_data_transform(config, X):
     if config.data.logit_transform:
         X = torch.sigmoid(X)
     elif config.data.rescaled:
-        X = (X + 1.0) / 2.0
+        # X = (X + 1.0) / 2.0
+        global _rescale_mean, _rescale_std
+        if _rescale_mean is None:
+            mean = config.data.rescale_mean
+            std  = config.data.rescale_std
+            mean_str = [f"{m:8.6f}" for m in mean]
+            std_str  = [f"{s:8.6f}" for s in std]
+            print(f"inverse_data_transform. mean: {', '.join(mean_str)}")
+            print(f"inverse_data_transform. std : {', '.join(std_str)}")
+            _rescale_mean = torch.as_tensor(mean, dtype=X.dtype, device=X.device)
+            _rescale_std  = torch.as_tensor(std, dtype=X.dtype, device=X.device)
+            if _rescale_mean.ndim == 1:
+                _rescale_mean = _rescale_mean.view(-1, 1, 1)
+            if _rescale_std.ndim == 1:
+                _rescale_std = _rescale_std.view(-1, 1, 1)
+        X.mul_(_rescale_std).add_(_rescale_mean)
 
     return torch.clamp(X, 0.0, 1.0)

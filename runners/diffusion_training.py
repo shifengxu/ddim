@@ -27,6 +27,7 @@ class DiffusionTraining(Diffusion):
         self.ema_helper = None
         self.ema_flag = args.ema_flag
         self.ema_rate = args.ema_rate or config.model.ema_rate
+        self.ema_updy = args.ema_updy
         self.ema_start_epoch = args.ema_start_epoch
 
     def train(self):
@@ -47,6 +48,19 @@ class DiffusionTraining(Diffusion):
             shuffle=True,
             num_workers=config.data.num_workers,
         )
+        test_per_epoch = args.test_per_epoch
+        logging.info(f"test_data_loader:")
+        logging.info(f"  test_per_epoch: {test_per_epoch}")
+        logging.info(f"  test_data_dir : {args.test_data_dir}")
+        logging.info(f"  batch_size    : {config.training.batch_size}")
+        logging.info(f"  shuffle       : False")
+        logging.info(f"  num_workers   : {config.data.num_workers}")
+        test_loader = data.DataLoader(
+            test_dataset,
+            batch_size=config.training.batch_size,
+            shuffle=False,
+            num_workers=config.data.num_workers,
+        )
         in_channels = args.model_in_channels
         out_channels = args.model_in_channels
         resolution = args.data_resolution
@@ -60,6 +74,7 @@ class DiffusionTraining(Diffusion):
         logging.info(f"  param size : {cnt} => {str_cnt}")
         logging.info(f"  ema_flag   : {self.ema_flag}")
         logging.info(f"  ema_rate   : {self.ema_rate}")
+        logging.info(f"  ema_updy   : {self.ema_updy}")
         logging.info(f"  ema_start_epoch: {self.ema_start_epoch}")
         logging.info(f"  stack_sz   : {self.model.stack_sz}") if model_name == 'ModelStack' else None
         logging.info(f"  ts_cnt     : {self.model.ts_cnt}") if model_name == 'ModelStack' else None
@@ -74,8 +89,8 @@ class DiffusionTraining(Diffusion):
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=e_cnt)
 
         if self.ema_flag:
-            self.ema_helper = EMAHelper(mu=self.ema_rate)
-            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate})")
+            self.ema_helper = EMAHelper(mu=self.ema_rate, update_every=self.ema_updy)
+            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate}, update_every={self.ema_updy})")
         else:
             self.ema_helper = None
             logging.info(f"  ema_helper: None")
@@ -109,6 +124,7 @@ class DiffusionTraining(Diffusion):
                 self.ema_helper.register(self.model)
             loss_ttl = 0.
             loss_cnt = 0
+            ema_cnt = 0
             for i, (x, y) in enumerate(train_loader):
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
@@ -117,12 +133,10 @@ class DiffusionTraining(Diffusion):
                 e = torch.randn_like(x)
 
                 # antithetic sampling
-                if model_name == 'ModelStack':
-                    loss, xt = self.train_model_stack(x, e)
-                else:
-                    loss, xt = self.train_model(x, e, epoch)
+                loss, xt, upd_flag = self.train_model(x, e, epoch)
                 loss_ttl += loss.item()
                 loss_cnt += 1
+                ema_cnt += upd_flag
 
                 if i % log_interval == 0 or i == b_cnt - 1:
                     elp, eta = utils.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
@@ -133,14 +147,42 @@ class DiffusionTraining(Diffusion):
 
             # for loader
             loss_avg = loss_ttl / loss_cnt
-            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f}")
+            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f}. ema_cnt:{ema_cnt}")
             loss_avg_arr.append(loss_avg)
             # self.scheduler.step()
-            if epoch % 20 == 0 or epoch == e_cnt - 1:
+            if epoch % 200 == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
+            if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
+                logging.info(f"E{epoch}. calculate loss on test dataset...")
+                self.model.eval()
+                test_loss_avg = self.get_avg_loss(self.model, test_loader)
+                self.model.train()
+                logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:8.4f}")
         # for epoch
+        if self.ema_flag and e_cnt >= self.ema_start_epoch:
+            self.ema_helper.update(self.model)
+            self.ema_helper.ema(self.model)
         utils.output_list(loss_avg_arr, 'loss_avg')
     # train(self)
+
+    def get_avg_loss(self, model, test_loader):
+        loss_ttl = 0.
+        loss_cnt = 0
+        with torch.no_grad():
+            for i, (x, y) in enumerate(test_loader):
+                x = x.to(self.device)
+                x = data_transform(self.config, x)
+                e = torch.randn_like(x)
+
+                b_sz = x.size(0)  # batch size
+                t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+                loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
+                loss_ttl += loss.item()
+                loss_cnt += 1
+            # for loader
+        # with
+        loss_avg = loss_ttl / loss_cnt
+        return loss_avg
 
     def train_model(self, x, epsilon, epoch):
         """
@@ -168,10 +210,10 @@ class DiffusionTraining(Diffusion):
             pass
         self.optimizer.step()
 
+        ema_update_flag = 0
         if self.ema_flag and epoch >= self.ema_start_epoch:
-            self.ema_helper.update(self.model)
-            self.ema_helper.ema(self.model)
-        return loss, xt
+            ema_update_flag = self.ema_helper.update_ema(self.model)
+        return loss, xt, ema_update_flag
 
     def train_model_stack(self, x, e):
         config = self.config

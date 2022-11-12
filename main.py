@@ -25,6 +25,8 @@ def parse_args_and_config():
 
     parser.add_argument("--config", type=str, default='./configs/ffhq_latent.yml')
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
+    parser.add_argument("--test_data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_test")
+    parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
     parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
@@ -35,6 +37,7 @@ def parse_args_and_config():
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
     parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
+    parser.add_argument('--ema_updy', type=int, default=10, help='EMA update every step')
     parser.add_argument('--ema_start_epoch', type=int, default=50, help='EMA start epoch')
     parser.add_argument("--model_in_channels", type=int, default='0', help='model.in_channels')
     parser.add_argument("--data_resolution", type=int, default='0', help='data.resolution')
@@ -65,6 +68,7 @@ def parse_args_and_config():
                         help="skip according to (uniform or quadratic)")
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
     parser.add_argument("--beta_schedule", type=str, default="cosine")
+    parser.add_argument("--beta_aar_expo", type=float, default=0.4, help="alpha accumulated root exponential")
     parser.add_argument("--beta_cos_expo", type=float, default=2, help="beta cosine exponential")
     parser.add_argument("--beta_noise_rg", nargs='+', type=float, default=[], help='noise range for linnoise')
     parser.add_argument("--eta", type=float, default=0.0,

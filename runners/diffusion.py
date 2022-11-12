@@ -74,6 +74,7 @@ class Diffusion(object):
         self.beta_schedule = args.beta_schedule or config.diffusion.beta_schedule
         self.beta_cos_expo = args.beta_cos_expo
         self.beta_noise_rg = args.beta_noise_rg
+        self.beta_aar_expo = args.beta_aar_expo
         self.alphas, self.alphas_cumprod, self.betas = self.get_alphas_and_betas(config)
         output_arr('betas', self.betas)
         output_arr('alphas', self.alphas)
@@ -95,6 +96,7 @@ class Diffusion(object):
         logging.info(f"  ts_high       : {self.ts_high}")
         logging.info(f"  num_timesteps : {self.num_timesteps}")
         logging.info(f"  beta_schedule : {self.beta_schedule}")
+        logging.info(f"  beta_aar_expo : {self.beta_aar_expo}")
         logging.info(f"  beta_cos_expo : {self.beta_cos_expo}")
         logging.info(f"  beta_noise_rg : {self.beta_noise_rg}")
 
@@ -143,6 +145,20 @@ class Diffusion(object):
             output_arr('linnoise.sq_root', sq_root)
             sq = torch.mul(sq_root, sq_root)
             alphas_cumprod = 1 - sq
+            divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
+            alphas = torch.div(alphas_cumprod, divisor)
+            betas = 1 - alphas
+        elif self.beta_schedule == 'aar_expo':
+            # If beta_aar_expo is 1, this is the same with schedule "linsqrt"
+            expo = self.beta_aar_expo
+            noise_range = self.beta_noise_rg
+            # alpha accumulated square root
+            n_high, n_low = noise_range if len(noise_range) == 2 else 0.9999, 0.0008
+            sq_root = np.linspace(n_high, n_low, ts_cnt, dtype=np.float64)
+            sq_root = torch.from_numpy(sq_root).float().to(device)
+            sq_root = torch.pow(sq_root, expo)
+            output_arr('aar_expo.sq_root', sq_root)
+            alphas_cumprod = torch.mul(sq_root, sq_root)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)
             betas = 1 - alphas
