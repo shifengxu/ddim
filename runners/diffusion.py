@@ -1,8 +1,12 @@
 import logging
 import math
+import os
 
 import numpy as np
 import torch
+
+from models.diffusion import ModelStack
+from utils import count_parameters, extract_ts_range
 
 
 def torch2hwcuint8(x, clip=False):
@@ -72,9 +76,6 @@ class Diffusion(object):
         logging.info(f"Diffusion() ========================")
 
         self.beta_schedule = args.beta_schedule or config.diffusion.beta_schedule
-        self.beta_cos_expo = args.beta_cos_expo
-        self.beta_noise_rg = args.beta_noise_rg
-        self.beta_aar_expo = args.beta_aar_expo
         self.alphas, self.alphas_cumprod, self.betas = self.get_alphas_and_betas(config)
         output_arr('betas', self.betas)
         output_arr('alphas', self.alphas)
@@ -96,9 +97,6 @@ class Diffusion(object):
         logging.info(f"  ts_high       : {self.ts_high}")
         logging.info(f"  num_timesteps : {self.num_timesteps}")
         logging.info(f"  beta_schedule : {self.beta_schedule}")
-        logging.info(f"  beta_aar_expo : {self.beta_aar_expo}")
-        logging.info(f"  beta_cos_expo : {self.beta_cos_expo}")
-        logging.info(f"  beta_noise_rg : {self.beta_noise_rg}")
 
         if self.model_var_type == "fixedlarge":
             self.logvar = self.betas.log()
@@ -111,6 +109,21 @@ class Diffusion(object):
             self.logvar = posterior_variance.clamp(min=1e-20).log()
 
     def get_alphas_and_betas(self, config):
+        """
+        Explanation_1:
+            beta:linear     idx: 0          idx: 999
+            beta            0.0001          0.02
+            alpha           0.9999          0.98
+            aacum           0.9999          0.00004
+            aacum_sqrt      0.999949999     0.006324555
+            noise           0.0001          0.99996
+            noise_sqrt      0.01            0.99998
+        Notes:
+            aacum: is alpha accumulation: a0*a1*a2...
+            noise: is just: 1 - accum
+        :param config:
+        :return:
+        """
         device = self.device
         ts_cnt = config.diffusion.num_diffusion_timesteps
         if self.beta_schedule == "cosine":
@@ -120,44 +133,48 @@ class Diffusion(object):
             alphas_cumprod = [] # alpha cumulate array
             for i in range(ts_cnt):
                 t = i / ts_cnt
-                ac = math.cos((t + 0.008) / 1.008 * math.pi / 2) ** self.beta_cos_expo
+                ac = math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
                 alphas_cumprod.append(ac)
             alphas_cumprod = torch.Tensor(alphas_cumprod).float().to(device)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)
             betas = 1 - alphas
-        elif self.beta_schedule == "linsqrt":
-            # linear square root.  The sqrt(alpha_accumulated) should be linear
+        elif self.beta_schedule.startswith('cos:'):
+            expo_str = self.beta_schedule.split(':')[1]  # "cos:2.2"
+            expo = float(expo_str)
             alphas_cumprod = []  # alpha cumulate array
             for i in range(ts_cnt):
-                t = (ts_cnt - i) / (ts_cnt + 1)
-                alphas_cumprod.append(t * t)
+                t = i / ts_cnt
+                ac = math.cos((t + 0.008) / 1.008 * math.pi / 2) ** expo
+                alphas_cumprod.append(ac)
             alphas_cumprod = torch.Tensor(alphas_cumprod).float().to(device)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)
             betas = 1 - alphas
-        elif self.beta_schedule == "linnoise":
-            # (1 - alpha_accumulated).sqrt() is linear. This is the noise in formular: xt = ()*x0 + ()*epsilon
-            noise_range = self.beta_noise_rg
-            n_low, n_high = noise_range if len(noise_range) == 2 else 0.008, 0.999
+        elif self.beta_schedule.startswith("noise_rt_expo:"):
+            # noise is: 1 - alpha_accumulated
+            expo_str = self.beta_schedule.split(':')[1]  # "noise_rt_expo:2.2"
+            expo = float(expo_str)
+            # n_low, n_high = 0.008, 0.999 # old value
+            n_low, n_high = 0.001, 0.999
             sq_root = np.linspace(n_low, n_high, ts_cnt, dtype=np.float64)
             sq_root = torch.from_numpy(sq_root).float().to(device)
-            output_arr('linnoise.sq_root', sq_root)
+            sq_root = torch.pow(sq_root, expo)
+            output_arr(self.beta_schedule, sq_root)
             sq = torch.mul(sq_root, sq_root)
             alphas_cumprod = 1 - sq
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)
             betas = 1 - alphas
-        elif self.beta_schedule == 'aar_expo':
-            # If beta_aar_expo is 1, this is the same with schedule "linsqrt"
-            expo = self.beta_aar_expo
-            noise_range = self.beta_noise_rg
-            # alpha accumulated square root
-            n_high, n_low = noise_range if len(noise_range) == 2 else 0.9999, 0.0008
+        elif self.beta_schedule.startswith('aacum_rt_expo:'):
+            expo_str = self.beta_schedule.split(':')[1]  # "aacum_rt_expo:2.2"
+            expo = float(expo_str)
+            # n_high, n_low = 0.9999, 0.0008 # old value
+            n_high, n_low = 0.999, 0.001
             sq_root = np.linspace(n_high, n_low, ts_cnt, dtype=np.float64)
             sq_root = torch.from_numpy(sq_root).float().to(device)
             sq_root = torch.pow(sq_root, expo)
-            output_arr('aar_expo.sq_root', sq_root)
+            output_arr(self.beta_schedule, sq_root)
             alphas_cumprod = torch.mul(sq_root, sq_root)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)
@@ -209,3 +226,60 @@ class Diffusion(object):
             # for
         # with
         return xt
+
+    def get_ckpt_path_arr(self):
+        root_dir = self.args.sample_ckpt_dir
+        ckpt_path_arr = []
+        for fname in os.listdir(root_dir):
+            if fname.startswith("ckpt") and fname.endswith(".pth"):
+                ckpt_path_arr.append(os.path.join(root_dir, fname))
+        ckpt_path_arr.sort()
+        return ckpt_path_arr
+
+    def model_stack_load_from_local(self, model: ModelStack, ckpt_path_arr):
+        cnt, str_cnt = count_parameters(model, log_fn=None)
+        logging.info(f"Loading ModelStack(stack_sz: {model.stack_sz})")
+        logging.info(f"  config type  : {self.config.model.type}")
+        logging.info(f"  param size   : {cnt} => {str_cnt}")
+        logging.info(f"  ckpt_path_arr: {len(ckpt_path_arr)}")
+        ms = model.model_stack
+        for i, ckpt_path in enumerate(ckpt_path_arr):
+            model.tsr_stack[i] = extract_ts_range(ckpt_path)
+            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}. ts: {model.tsr_stack[i]}")
+            states = torch.load(ckpt_path, map_location=self.config.device)
+            if isinstance(states, dict):
+                # This is for backward-compatibility. As previously, the states is a list ([]).
+                # And that was not convenient for adding or dropping items.
+                # Therefore, we change to use dict.
+                ms[i].load_state_dict(states['model'], strict=True)
+            else:
+                ms[i].load_state_dict(states[0], strict=True)
+        # for
+        model = model.to(self.device)
+        if len(self.args.gpu_ids) > 0:
+            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
+        logging.info(f"  model.to({self.device})")
+        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+        return model
+
+    def model_load_from_local(self, model):
+        if self.args.sample_ckpt_path:
+            ckpt_path = self.args.sample_ckpt_path
+        elif getattr(self.config.sampling, "ckpt_id", None) is None:
+            ckpt_path = os.path.join(self.args.log_path, "ckpt.pth")
+        else:
+            ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
+        logging.info(f"load ckpt: {ckpt_path}")
+        states = torch.load(ckpt_path, map_location=self.config.device)
+        if isinstance(states, dict):
+            model.load_state_dict(states['model'], strict=True)
+        else:
+            model.load_state_dict(states[0], strict=True)
+        model = model.to(self.device)
+        if len(self.args.gpu_ids) > 1:
+            logging.info(f"torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
+        logging.info(f"model({type(model).__name__})")
+        logging.info(f"  model.to({self.device})")
+        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+        return model

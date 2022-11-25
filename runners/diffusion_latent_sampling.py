@@ -15,35 +15,12 @@ class DiffusionLatentSampling(Diffusion):
         self.sample_count = 50000    # sample image count
         self.sample_img_init_id = 0  # sample image init ID. useful when generate image in parallel.
 
-    def model_load_from_local(self, model):
-        if self.args.sample_ckpt_path:
-            ckpt_path = self.args.sample_ckpt_path
-        elif getattr(self.config.sampling, "ckpt_id", None) is None:
-            ckpt_path = os.path.join(self.args.log_path, "ckpt.pth")
-        else:
-            ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
-        logging.info(f"load ckpt: {ckpt_path}")
-        states = torch.load(ckpt_path, map_location=self.config.device)
-        if isinstance(states, dict):
-            model.load_state_dict(states['model'], strict=True)
-        else:
-            model.load_state_dict(states[0], strict=True)
-        model = model.to(self.device)
-        model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"model({type(model).__name__})")
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        return model
-
     def sample(self):
-        if self.args.sample_stack_size > 1:
-            raise NotImplementedError(f"Not implemented: args.sample_stack_size > 1")
-        else:
-            in_channels = self.args.model_in_channels
-            out_channels = self.args.model_in_channels
-            resolution = self.args.data_resolution
-            model = Model(self.config, in_channels=in_channels, out_channels=out_channels, resolution=resolution)
-            model = self.model_load_from_local(model)
+        in_channels = self.args.model_in_channels
+        out_channels = self.args.model_in_channels
+        resolution = self.args.data_resolution
+        model = Model(self.config, in_channels=in_channels, out_channels=out_channels, resolution=resolution)
+        model = self.model_load_from_local(model)
         model.eval()
 
         config = self.config

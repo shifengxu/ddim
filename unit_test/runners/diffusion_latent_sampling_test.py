@@ -19,7 +19,6 @@ class DiffusionLatentSamplingTest(unittest.TestCase):
         args.config = './configs/ffhq_latent.yml'
         args.sample_output_dir = './unit_test_output_dir'
         args.beta_schedule = 'linear'
-        args.beta_cos_expo = 2
         args.ts_range = [0, 1000]
         args.sample_type = 'generalized'
         args.skip_type = 'uniform'

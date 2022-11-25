@@ -7,11 +7,9 @@ data:
     gaussian_dequantization: false
     random_flip: true
     rescaled: true
-    # rescale_mean: [0.520657, 0.425430, 0.380456]
-    # rescale_std : [0.265593, 0.239924, 0.241263]
+    rescale_mean: [0.520657, 0.425430, 0.380456]
+    rescale_std : [0.265593, 0.239924, 0.241263]
     # the above mean and std are calculated by main_mean_var.py
-    rescale_mean: [0.5, 0.5, 0.5]
-    rescale_std : [0.5, 0.5, 0.5]
     num_workers: 4
 
 model:

@@ -89,61 +89,6 @@ class DiffusionPartialSampling(Diffusion):
             # for r_idx
         # with
 
-    def get_ckpt_path_arr(self):
-        root_dir = self.args.sample_ckpt_dir
-        ckpt_path_arr = []
-        for fname in os.listdir(root_dir):
-            if fname.startswith("ckpt") and fname.endswith(".pth"):
-                ckpt_path_arr.append(os.path.join(root_dir, fname))
-        ckpt_path_arr.sort()
-        return ckpt_path_arr
-
-    def model_load_from_local(self, model):
-        if self.args.sample_ckpt_path:
-            ckpt_path = self.args.sample_ckpt_path
-        elif getattr(self.config.sampling, "ckpt_id", None) is None:
-            ckpt_path = os.path.join(self.args.log_path, "ckpt.pth")
-        else:
-            ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
-        logging.info(f"load ckpt: {ckpt_path}")
-        states = torch.load(ckpt_path, map_location=self.config.device)
-        if isinstance(states, dict):
-            model.load_state_dict(states['model'], strict=True)
-        else:
-            model.load_state_dict(states[0], strict=True)
-        model = model.to(self.device)
-        model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"model({type(model).__name__})")
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        return model
-
-    def model_stack_load_from_local(self, model: ModelStack, ckpt_path_arr):
-        cnt, str_cnt = count_parameters(model, log_fn=None)
-        logging.info(f"Loading ModelStack(stack_sz: {model.stack_sz})")
-        logging.info(f"  config type  : {self.config.model.type}")
-        logging.info(f"  param size   : {cnt} => {str_cnt}")
-        logging.info(f"  ckpt_path_arr: {len(ckpt_path_arr)}")
-        ms = model.model_stack
-        for i, ckpt_path in enumerate(ckpt_path_arr):
-            model.tsr_stack[i] = extract_ts_range(ckpt_path)
-            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}. ts: {model.tsr_stack[i]}")
-            states = torch.load(ckpt_path, map_location=self.config.device)
-            if isinstance(states, dict):
-                # This is for backward-compatibility. As previously, the states is a list ([]).
-                # And that was not convenient for adding or dropping items.
-                # Therefore, we change to use dict.
-                ms[i].load_state_dict(states['model'], strict=True)
-            else:
-                ms[i].load_state_dict(states[0], strict=True)
-        # for
-        model = model.to(self.device)
-        if len(self.args.gpu_ids) > 0:
-            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        return model
-
     def save_xt(self, x, ts, r_idx, b_sz):
         x = x.clone()
         x = inverse_data_transform(self.config, x)

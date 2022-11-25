@@ -51,7 +51,6 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_dir", type=str, default='./exp/model_S4E1000TSxxx')
     parser.add_argument("--sample_batch_size", type=int, default='500', help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
-    parser.add_argument("--sample_stack_size", type=int, default=4, help="model stack size when sampling")
     parser.add_argument('--psample_ts_list', nargs='+', type=int, help='0 means x0',
                         default=[50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 0, 1000])
     parser.add_argument('--psample_dir', type=str, default="./exp/partialSample")
@@ -68,9 +67,6 @@ def parse_args_and_config():
                         help="skip according to (uniform or quadratic)")
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
     parser.add_argument("--beta_schedule", type=str, default="cosine")
-    parser.add_argument("--beta_aar_expo", type=float, default=0.4, help="alpha accumulated root exponential")
-    parser.add_argument("--beta_cos_expo", type=float, default=2, help="beta cosine exponential")
-    parser.add_argument("--beta_noise_rg", nargs='+', type=float, default=[], help='noise range for linnoise')
     parser.add_argument("--eta", type=float, default=0.0,
                         help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")

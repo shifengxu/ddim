@@ -34,33 +34,38 @@ class DiffusionTraining(Diffusion):
         args, config = self.args, self.config
         tb_logger = self.config.tb_logger
         dataset, test_dataset = get_dataset(args, config)
-        logging.info(f"dataset:")
+        logging.info(f"train dataset:")
         logging.info(f"  root : {dataset.root}")
         logging.info(f"  split: {dataset.split}") if hasattr(dataset, 'split') else None
         logging.info(f"  len  : {len(dataset)}")
-        logging.info(f"data_loader:")
-        logging.info(f"  batch_size : {config.training.batch_size}")
-        logging.info(f"  shuffle    : True")
-        logging.info(f"  num_workers: {config.data.num_workers}")
+        logging.info(f"test dataset:")
+        logging.info(f"  root : {test_dataset.root}")
+        logging.info(f"  len  : {len(test_dataset)}")
         train_loader = data.DataLoader(
             dataset,
             batch_size=config.training.batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
         )
+        logging.info(f"train_data_loader:")
+        logging.info(f"  batch_cnt  : {len(train_loader)}")
+        logging.info(f"  batch_size : {config.training.batch_size}")
+        logging.info(f"  shuffle    : True")
+        logging.info(f"  num_workers: {config.data.num_workers}")
         test_per_epoch = args.test_per_epoch
-        logging.info(f"test_data_loader:")
-        logging.info(f"  test_per_epoch: {test_per_epoch}")
-        logging.info(f"  test_data_dir : {args.test_data_dir}")
-        logging.info(f"  batch_size    : {config.training.batch_size}")
-        logging.info(f"  shuffle       : False")
-        logging.info(f"  num_workers   : {config.data.num_workers}")
         test_loader = data.DataLoader(
             test_dataset,
             batch_size=config.training.batch_size,
             shuffle=False,
             num_workers=config.data.num_workers,
         )
+        logging.info(f"test_data_loader:")
+        logging.info(f"  test_per_epoch: {test_per_epoch}")
+        logging.info(f"  test_data_dir : {args.test_data_dir}")
+        logging.info(f"  batch_cnt     : {len(test_loader)}")
+        logging.info(f"  batch_size    : {config.training.batch_size}")
+        logging.info(f"  shuffle       : False")
+        logging.info(f"  num_workers   : {config.data.num_workers}")
         in_channels = args.model_in_channels
         out_channels = args.model_in_channels
         resolution = args.data_resolution
@@ -286,7 +291,6 @@ class DiffusionTraining(Diffusion):
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
             'beta_schedule': self.beta_schedule,
-            'beta_cos_expo': self.beta_cos_expo,
             'cur_epoch': e_idx
         }
         if self.ema_flag and self.ema_helper:

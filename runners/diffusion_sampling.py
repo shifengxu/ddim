@@ -7,13 +7,10 @@ import torch
 
 import utils
 from datasets import inverse_data_transform
-from functions.ckpt_util import get_ckpt_path
 from models.diffusion import Model, ModelStack
 from runners.diffusion import Diffusion
 
 import torchvision.utils as tvu
-
-from utils import count_parameters
 
 
 class DiffusionSampling(Diffusion):
@@ -22,126 +19,31 @@ class DiffusionSampling(Diffusion):
         self.sample_count = 50000    # sample image count
         self.sample_img_init_id = 0  # sample image init ID. useful when generate image in parallel.
 
-    def model_load_from_local(self, model):
-        if self.args.sample_ckpt_path:
-            ckpt_path = self.args.sample_ckpt_path
-        elif getattr(self.config.sampling, "ckpt_id", None) is None:
-            ckpt_path = os.path.join(self.args.log_path, "ckpt.pth")
-        else:
-            ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
-        logging.info(f"load ckpt: {ckpt_path}")
-        states = torch.load(ckpt_path, map_location=self.config.device)
-        if isinstance(states, dict):
-            model.load_state_dict(states['model'], strict=True)
-        else:
-            model.load_state_dict(states[0], strict=True)
-        model = model.to(self.device)
-        if len(self.args.gpu_ids) > 1:
-            logging.info(f"torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"model({type(model).__name__})")
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        return model
-
-    def model_stack_load_from_local(self, model: ModelStack):
-        root_dir = self.args.sample_ckpt_dir
-        if self.args.sample_stack_size == 10:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-100.pth"),
-                os.path.join(root_dir, "ckpt_100-200.pth"),
-                os.path.join(root_dir, "ckpt_200-300.pth"),
-                os.path.join(root_dir, "ckpt_300-400.pth"),
-                os.path.join(root_dir, "ckpt_400-500.pth"),
-                os.path.join(root_dir, "ckpt_500-600.pth"),
-                os.path.join(root_dir, "ckpt_600-700.pth"),
-                os.path.join(root_dir, "ckpt_700-800.pth"),
-                os.path.join(root_dir, "ckpt_800-900.pth"),
-                os.path.join(root_dir, "ckpt_900-1000.pth"),
-            ]
-        elif self.args.sample_stack_size == 8:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-125.pth"),
-                os.path.join(root_dir, "ckpt_125-250.pth"),
-                os.path.join(root_dir, "ckpt_250-375.pth"),
-                os.path.join(root_dir, "ckpt_375-500.pth"),
-                os.path.join(root_dir, "ckpt_500-625.pth"),
-                os.path.join(root_dir, "ckpt_625-750.pth"),
-                os.path.join(root_dir, "ckpt_750-875.pth"),
-                os.path.join(root_dir, "ckpt_875-1000.pth"),
-            ]
-        elif self.args.sample_stack_size == 4:
-            ckpt_path_arr = [
-                os.path.join(root_dir, "ckpt_000-250.pth"),
-                os.path.join(root_dir, "ckpt_250-500.pth"),
-                os.path.join(root_dir, "ckpt_500-750.pth"),
-                os.path.join(root_dir, "ckpt_750-1000.pth"),
-            ]
-        else:  # other cases, need manual handling.
-            ckpt_path_arr = [
-                # f"{root_dir}/exp/model_S10E200/ckpt_000-100.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_100-200.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_200-300.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_300-400.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_400-500.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_500-600.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_600-700.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_700-800.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_800-900.pth",
-                # f"{root_dir}/exp/model_S10E200/ckpt_900-1000.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_000-250.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_250-500.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_500-750.pth",
-                f"{root_dir}/exp/model_stack_epoch500/ckpt_750-1000.pth",
-            ]
-        cnt, str_cnt = count_parameters(model, log_fn=None)
-        logging.info(f"Loading ModelStack(stack_sz: {model.stack_sz})")
-        logging.info(f"  config type  : {self.config.model.type}")
-        logging.info(f"  param size   : {cnt} => {str_cnt}")
-        logging.info(f"  ckpt_path_arr: {len(ckpt_path_arr)}")
-        ms = model.model_stack
-        for i, ckpt_path in enumerate(ckpt_path_arr):
-            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}")
-            states = torch.load(ckpt_path, map_location=self.config.device)
-            if isinstance(states, dict):
-                # This is for backward-compatibility. As previously, the states is a list ([]).
-                # And that was not convenient for adding or dropping items.
-                # Therefore, we change to use dict.
-                ms[i].load_state_dict(states['model'], strict=True)
-            else:
-                ms[i].load_state_dict(states[0], strict=True)
-        # for
-        model = model.to(self.device)
-        model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
-        return model
-
     def sample(self):
-        if self.args.sample_stack_size > 1:
-            model = ModelStack(self.config, self.args.sample_stack_size)
+        config = self.config
+        ckpt_path_arr = self.get_ckpt_path_arr()
+        if len(ckpt_path_arr) > 1:
+            model = ModelStack(config, len(ckpt_path_arr))
+            model = self.model_stack_load_from_local(model, ckpt_path_arr)
         else:
-            model = Model(self.config)
+            model = Model(config)
+            model = self.model_load_from_local(model)
 
-        if not self.args.use_pretrained:
-            div_conquer = True
-            if isinstance(model, ModelStack) and div_conquer:
-                model = self.model_stack_load_from_local(model)
-            else:
-                model = self.model_load_from_local(model)
-        else:
-            # This used the pretrained DDPM model, see https://github.com/pesser/pytorch_diffusion
-            if self.config.data.dataset == "CIFAR10":
-                name = "cifar10"
-            elif self.config.data.dataset == "LSUN":
-                name = f"lsun_{self.config.data.category}"
-            else:
-                raise ValueError
-            ckpt = get_ckpt_path(f"ema_{name}")
-            print("Loading checkpoint {}".format(ckpt))
-            model.load_state_dict(torch.load(ckpt, map_location=self.device))
-            model.to(self.device)
-            model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
+        # if not self.args.use_pretrained:
+        #     model = self.model_load_from_local(model)
+        # else:
+        #     # This used the pretrained DDPM model, see https://github.com/pesser/pytorch_diffusion
+        #     if self.config.data.dataset == "CIFAR10":
+        #         name = "cifar10"
+        #     elif self.config.data.dataset == "LSUN":
+        #         name = f"lsun_{self.config.data.category}"
+        #     else:
+        #         raise ValueError
+        #     ckpt = get_ckpt_path(f"ema_{name}")
+        #     print("Loading checkpoint {}".format(ckpt))
+        #     model.load_state_dict(torch.load(ckpt, map_location=self.device))
+        #     model.to(self.device)
+        #     model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
 
         model.eval()
 
