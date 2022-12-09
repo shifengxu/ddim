@@ -105,7 +105,7 @@ def output_list(lst, name, log_fn=log_info):
     cnt = len(lst)
     for i in range(0, cnt, 10):
         r = min(i+10, cnt)  # right bound
-        log_fn(f"{name}[{i:03d}~{r:03d}]: {num2str(lst[i:r])}")
+        log_fn(f"{name}[{i:04d}~]: {num2str(lst[i:r])}")
 
 def dict2namespace(config):
     namespace = argparse.Namespace()

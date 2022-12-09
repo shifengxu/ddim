@@ -155,11 +155,12 @@ class Diffusion(object):
             # noise is: 1 - alpha_accumulated
             expo_str = self.beta_schedule.split(':')[1]  # "noise_rt_expo:2.2"
             expo = float(expo_str)
-            # n_low, n_high = 0.008, 0.999 # old value
-            n_low, n_high = 0.001, 0.999
+            n_low, n_high = 0.008, 0.999 # old value
+            # n_low, n_high = 0.001, 0.9999  # if "noise_rt_expo:1", got FID 27.792929 on CIFAR-10
             sq_root = np.linspace(n_low, n_high, ts_cnt, dtype=np.float64)
             sq_root = torch.from_numpy(sq_root).float().to(device)
-            sq_root = torch.pow(sq_root, expo)
+            if expo != 1.0:
+                sq_root = torch.pow(sq_root, expo)
             output_arr(self.beta_schedule, sq_root)
             sq = torch.mul(sq_root, sq_root)
             alphas_cumprod = 1 - sq
@@ -169,11 +170,15 @@ class Diffusion(object):
         elif self.beta_schedule.startswith('aacum_rt_expo:'):
             expo_str = self.beta_schedule.split(':')[1]  # "aacum_rt_expo:2.2"
             expo = float(expo_str)
-            # n_high, n_low = 0.9999, 0.0008 # old value
-            n_high, n_low = 0.999, 0.001
+            n_high, n_low = 0.9999, 0.0008 # old value
+            # n_high, n_low = 0.9999, 0.001
+            # given: 0.9999, 0.001
+            #   if "aacum_rt_expo:1",   got FID 22.608681 on CIFAR-10
+            #   if "aacum_rt_expo:1.5", got FID 49.226592 on CIFAR-10
             sq_root = np.linspace(n_high, n_low, ts_cnt, dtype=np.float64)
             sq_root = torch.from_numpy(sq_root).float().to(device)
-            sq_root = torch.pow(sq_root, expo)
+            if expo != 1.0:
+                sq_root = torch.pow(sq_root, expo)
             output_arr(self.beta_schedule, sq_root)
             alphas_cumprod = torch.mul(sq_root, sq_root)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
@@ -230,6 +235,8 @@ class Diffusion(object):
     def get_ckpt_path_arr(self):
         root_dir = self.args.sample_ckpt_dir
         ckpt_path_arr = []
+        if not root_dir or not os.path.exists(root_dir):
+            return ckpt_path_arr
         for fname in os.listdir(root_dir):
             if fname.startswith("ckpt") and fname.endswith(".pth"):
                 ckpt_path_arr.append(os.path.join(root_dir, fname))

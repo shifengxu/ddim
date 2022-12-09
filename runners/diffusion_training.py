@@ -92,6 +92,8 @@ class DiffusionTraining(Diffusion):
         self.model.to(self.device)
         self.optimizer = get_optimizer(self.config, self.model.parameters(), self.args.lr)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=e_cnt)
+        logging.info(f"optimizer: {type(self.optimizer).__name__} ===================")
+        logging.info(f"  lr: {self.args.lr}")
 
         if self.ema_flag:
             self.ema_helper = EMAHelper(mu=self.ema_rate, update_every=self.ema_updy)
@@ -113,9 +115,11 @@ class DiffusionTraining(Diffusion):
         b_cnt = len(train_loader)
         eb_cnt = e_cnt * b_cnt  # epoch * batch
         loss_avg_arr = []
+        test_avg_arr = []  # test dataset loss avg array
         data_start = time.time()
         self.model.train()
         log_interval = 1 if model_name == 'ModelStack' else 10
+        test_ts_arr = []  # time-step array for testing
         logging.info(f"log_interval: {log_interval}")
         logging.info(f"start_epoch : {start_epoch}")
         logging.info(f"epoch_cnt   : {e_cnt}")
@@ -155,22 +159,30 @@ class DiffusionTraining(Diffusion):
             logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f}. ema_cnt:{ema_cnt}")
             loss_avg_arr.append(loss_avg)
             # self.scheduler.step()
-            if epoch % 200 == 0 or epoch == e_cnt - 1:
+            if epoch % 100 == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
             if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
-                logging.info(f"E{epoch}. calculate loss on test dataset...")
+                logging.info(f"E{epoch}. calculate loss on test dataset...test_ts_arr:{len(test_ts_arr)}")
                 self.model.eval()
-                test_loss_avg = self.get_avg_loss(self.model, test_loader)
+                test_loss_avg = self.get_avg_loss(self.model, test_loader, test_ts_arr)
                 self.model.train()
                 logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:8.4f}")
+                test_avg_arr.append(test_loss_avg)
         # for epoch
-        if self.ema_flag and e_cnt >= self.ema_start_epoch:
-            self.ema_helper.update(self.model)
-            self.ema_helper.ema(self.model)
         utils.output_list(loss_avg_arr, 'loss_avg')
+        utils.output_list(test_avg_arr, 'test_avg')
     # train(self)
 
-    def get_avg_loss(self, model, test_loader):
+    def get_avg_loss(self, model, test_loader, test_ts_arr):
+        """
+        By test_ts_arr, we can make sure that the testing process is deterministic.
+        The first testing round will generate the timesteps. and the consequence
+        testing rounds will reuse those timesteps.
+        :param model:
+        :param test_loader:
+        :param test_ts_arr: timestep array
+        :return:
+        """
         loss_ttl = 0.
         loss_cnt = 0
         with torch.no_grad():
@@ -180,7 +192,11 @@ class DiffusionTraining(Diffusion):
                 e = torch.randn_like(x)
 
                 b_sz = x.size(0)  # batch size
-                t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+                if len(test_ts_arr) > i:
+                    t = test_ts_arr[i]
+                else:
+                    t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+                    test_ts_arr.append(t)
                 loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
                 loss_ttl += loss.item()
                 loss_cnt += 1
