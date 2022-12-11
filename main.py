@@ -25,15 +25,16 @@ def parse_args_and_config():
 
     parser.add_argument("--config", type=str, default='./configs/ffhq_latent.yml')
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
+    parser.add_argument("--data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_train")
     parser.add_argument("--test_data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_test")
     parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
     parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
+    parser.add_argument("--batch_size", type=int, default=0, help="0 mean to use size from config file")
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
     parser.add_argument("--doc", type=str, default='doc',
                         help="A string for documentation purpose. Will be the name of the log folder.")
-    parser.add_argument("--data_dir", type=str, default="", help="dir of training/testing data.")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
     parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
@@ -58,6 +59,7 @@ def parse_args_and_config():
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", type=str2bool, default=False)
+    parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
     parser.add_argument("--ni", action="store_true", default=True,
                         help="No interaction. Suitable for Slurm Job launcher")
     parser.add_argument("--use_pretrained", action="store_true")

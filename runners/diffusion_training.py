@@ -41,21 +41,22 @@ class DiffusionTraining(Diffusion):
         logging.info(f"test dataset:")
         logging.info(f"  root : {test_dataset.root}")
         logging.info(f"  len  : {len(test_dataset)}")
+        batch_size = args.batch_size or config.training.batch_size
         train_loader = data.DataLoader(
             dataset,
-            batch_size=config.training.batch_size,
+            batch_size=batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
         )
         logging.info(f"train_data_loader:")
         logging.info(f"  batch_cnt  : {len(train_loader)}")
-        logging.info(f"  batch_size : {config.training.batch_size}")
+        logging.info(f"  batch_size : {batch_size}")
         logging.info(f"  shuffle    : True")
         logging.info(f"  num_workers: {config.data.num_workers}")
         test_per_epoch = args.test_per_epoch
         test_loader = data.DataLoader(
             test_dataset,
-            batch_size=config.training.batch_size,
+            batch_size=batch_size,
             shuffle=False,
             num_workers=config.data.num_workers,
         )
@@ -63,7 +64,7 @@ class DiffusionTraining(Diffusion):
         logging.info(f"  test_per_epoch: {test_per_epoch}")
         logging.info(f"  test_data_dir : {args.test_data_dir}")
         logging.info(f"  batch_cnt     : {len(test_loader)}")
-        logging.info(f"  batch_size    : {config.training.batch_size}")
+        logging.info(f"  batch_size    : {batch_size}")
         logging.info(f"  shuffle       : False")
         logging.info(f"  num_workers   : {config.data.num_workers}")
         in_channels = args.model_in_channels
@@ -104,8 +105,9 @@ class DiffusionTraining(Diffusion):
 
         start_epoch = 0
         if self.args.resume_training:
-            ckpt_path = os.path.join(self.args.log_path, "ckpt.pth")
-            logging.info(f"resume_training: {ckpt_path}")
+            ckpt_path = self.args.resume_ckpt
+            logging.info(f"resume_training: {self.args.resume_training}")
+            logging.info(f"resume_ckpt    : {ckpt_path}")
             states = torch.load(ckpt_path, map_location=self.device)
             start_epoch = self.load_model(states)
         logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
@@ -113,7 +115,7 @@ class DiffusionTraining(Diffusion):
         cudnn.benchmark = True
 
         b_cnt = len(train_loader)
-        eb_cnt = e_cnt * b_cnt  # epoch * batch
+        eb_cnt = (e_cnt - start_epoch) * b_cnt  # epoch * batch
         loss_avg_arr = []
         test_avg_arr = []  # test dataset loss avg array
         data_start = time.time()
@@ -148,7 +150,7 @@ class DiffusionTraining(Diffusion):
                 ema_cnt += upd_flag
 
                 if i % log_interval == 0 or i == b_cnt - 1:
-                    elp, eta = utils.get_time_ttl_and_eta(data_start, epoch * b_cnt + i, eb_cnt)
+                    elp, eta = utils.get_time_ttl_and_eta(data_start, (epoch-start_epoch) * b_cnt + i, eb_cnt)
                     var, mean = torch.var_mean(xt)
                     logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():8.4f};"
                                  f" x0:{mean0:7.4f} {var0:6.4f}; xt:{mean:7.4f} {var:6.4f};"
@@ -291,7 +293,7 @@ class DiffusionTraining(Diffusion):
         start_epoch = states['cur_epoch']
         logging.info(f"  load_model_dict()...")
         logging.info(f"  resume optimizer  : eps={op_st['param_groups'][0]['eps']}")
-        logging.info(f"  resume scheduler  : lr={self.scheduler.get_last_lr():8.6f}")
+        logging.info(f"  resume scheduler  : lr={self.scheduler.get_last_lr()[0]:8.6f}")
         logging.info(f"  resume start_epoch: {start_epoch}")
         if self.ema_flag:
             self.ema_helper.load_state_dict(states['ema_helper'])
