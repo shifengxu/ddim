@@ -282,11 +282,10 @@ class Diffusion(object):
             model.load_state_dict(states['model'], strict=True)
         else:
             model.load_state_dict(states[0], strict=True)
+        logging.info(f"model({type(model).__name__})")
+        logging.info(f"  model.to({self.device})")
         model = model.to(self.device)
         if len(self.args.gpu_ids) > 1:
             logging.info(f"torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
             model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
-        logging.info(f"model({type(model).__name__})")
-        logging.info(f"  model.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
         return model

@@ -10,10 +10,12 @@ import numpy as np
 import torch.utils.tensorboard as tb
 
 from runners.diffusion_sampling import DiffusionSampling
+from runners.diffusion_sampling2 import DiffusionSampling2
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
 from runners.diffusion_latent_sampling import DiffusionLatentSampling
+from runners.diffusion_training2 import DiffusionTraining2
 
 from utils import str2bool, dict2namespace
 
@@ -23,15 +25,15 @@ torch.set_printoptions(sci_mode=False)
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
 
-    parser.add_argument("--config", type=str, default='./configs/ffhq_latent.yml')
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
-    parser.add_argument("--data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_train")
+    parser.add_argument("--config", type=str, default='./configs/cifar10.yml')
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
+    parser.add_argument("--data_dir", type=str, default="./exp")
     parser.add_argument("--test_data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_test")
     parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
     parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
-    parser.add_argument("--batch_size", type=int, default=0, help="0 mean to use size from config file")
+    parser.add_argument("--batch_size", type=int, default=250, help="0 mean to use size from config file")
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
     parser.add_argument("--doc", type=str, default='doc',
                         help="A string for documentation purpose. Will be the name of the log folder.")
@@ -213,6 +215,14 @@ def main():
             logging.info(f"train ===================================")
             runner = DiffusionTraining(args, config, device=config.device)
             runner.train()
+        elif args.todo == 'train2':
+            logging.info(f"train2 ===================================")
+            runner = DiffusionTraining2(args, config, device=config.device)
+            runner.train()
+        elif args.todo == 'sample2':
+            logging.info(f"sample2 ===================================")
+            runner = DiffusionSampling2(args, config, device=config.device)
+            runner.sample()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     except Exception:
