@@ -9,16 +9,19 @@ from models.diffusion import Model, ModelStack
 from runners.diffusion import Diffusion
 
 
-class DiffusionSampling2(Diffusion):
+class DiffusionSampling0(Diffusion):
     """
-    Sampling by 2 models. This corresponds to DiffusionTraining2 in diffusion_training2.py
+    Sampling by model who predicts x0.
+    This corresponds to DiffusionTraining0 in diffusion_training0.py
     """
     def __init__(self, args, config, device=None):
         super().__init__(args, config, device)
         self.sample_count = 50000    # sample image count
         self.sample_img_init_id = 0  # sample image init ID. useful when generate image in parallel.
-        self.model_et = None
         self.model_x0 = None
+        skip = self.num_timesteps // self.args.timesteps
+        self.seq = range(0, self.num_timesteps, skip)
+
 
     def sample(self):
         config = self.config
@@ -27,17 +30,14 @@ class DiffusionSampling2(Diffusion):
         self.sample_count = args.sample_count
         self.sample_img_init_id = args.sample_img_init_id
         if len(ckpt_path_arr) > 1:
-            self.model_et = ModelStack(config, len(ckpt_path_arr))
             self.model_x0 = ModelStack(config, len(ckpt_path_arr))
             self.model_stack_load(ckpt_path_arr)
         else:
-            self.model_et = Model(config)
             self.model_x0 = Model(config)
             self.model_load()
-        self.model_et.eval()
         self.model_x0.eval()
 
-        logging.info(f"DiffusionSampling2.sample(self, {type(self.model_et).__name__})...")
+        logging.info(f"DiffusionSampling0.sample(self, {type(self.model_x0).__name__})...")
         if os.path.exists(args.sample_output_dir):
             logging.info(f"  args.sample_output_dir : {args.sample_output_dir}")
         else:
@@ -67,22 +67,21 @@ class DiffusionSampling2(Diffusion):
                     device=self.device,
                 )
                 self.sample_fid_vanilla(x_t, time_start, n_rounds, r_idx, b_sz)
-                if isinstance(self.model_et, torch.nn.DataParallel):
-                    real_model = self.model_et.module
+                if isinstance(self.model_x0, torch.nn.DataParallel):
+                    real_model = self.model_x0.module
                 else:
-                    real_model = self.model_et
+                    real_model = self.model_x0
                 if isinstance(real_model, ModelStack):
                     logging.info(f"ModelStack brick hit counter: {real_model.brick_hit_counter}")
             # for r_idx
         # with
 
     def sample_fid_vanilla(self, x_t, time_start, n_rounds, r_idx, b_sz):
-        x = self.sample_image(x_t)
+        x = self.sample_image(x_t, time_start, n_rounds, r_idx)
         x = inverse_data_transform(self.config, x)
         img_cnt = len(x)
-        elp, eta = utils.get_time_ttl_and_eta(time_start, r_idx+1, n_rounds)
         img_dir = self.args.sample_output_dir
-        logging.info(f"save {img_cnt} images to: {img_dir}. round:{r_idx}/{n_rounds}, elp:{elp}, eta:{eta}")
+        logging.info(f"save {img_cnt} images to: {img_dir}. round:{r_idx}/{n_rounds}")
         img_first = img_last = None
         for i in range(img_cnt):
             img_id = r_idx * b_sz + i + self.sample_img_init_id
@@ -93,64 +92,55 @@ class DiffusionSampling2(Diffusion):
         logging.info(f"image generated: {img_first} ~ {img_last}. "
                      f"init:{self.sample_img_init_id}; cnt:{self.sample_count}")
 
-    def sample_image(self, x_T):
-        skip = self.num_timesteps // self.args.timesteps
-        seq = range(0, self.num_timesteps, skip)
-        msg = f"sampling2::seq=[{seq[-1]}~{seq[0]}], len={len(seq)}"
+    def sample_image(self, x_T, time_start, r_cnt, r_idx):
+        seq = self.seq
+        i_cnt = len(seq)        # iteration count
+        ir_cnt = i_cnt * r_cnt  # total iterations in all rounds
+        msg = f"sampling0::sample_image():seq_len={len(seq)}"
         b_sz = x_T.size(0)
         xt = x_T
         for i in reversed(seq):
             t = (torch.ones(b_sz) * i).to(x_T.device)   # [999., 999.]
-            aq = self.alphas_cumproq.index_select(0, t.long()).view(-1, 1, 1, 1) # alpha_{t-1}
-            et = self.model_et(xt, t)               # epsilon_t
+            at = self.alphas_cumprod.index_select(0, t.long()).view(-1, 1, 1, 1)  # alpha_t
+            aq = self.alphas_cumproq.index_select(0, t.long()).view(-1, 1, 1, 1)  # alpha_{t-1}
             x0 = self.model_x0(xt, t)
-            if i % 50 == 0: logging.info(f"sample_image(eta==0): {msg}; i={i}")
-            xt_next = aq.sqrt() * x0 + (1 - aq).sqrt() * et
+            if i % 50 == 0:
+                elp, eta = utils.get_time_ttl_and_eta(time_start, r_idx*i_cnt+(i_cnt-i), ir_cnt)
+                logging.info(f"{msg}; i={i}, elp:{elp}, eta:{eta}")
+            xt_next = aq.sqrt() * x0 + ((1-aq) / (1-at)).sqrt() * (xt - at.sqrt()*x0)
             xt = xt_next
         # for
         return xt
 
     def model_stack_load(self, ckpt_path_arr):
-        cnt, str_cnt = utils.count_parameters(self.model_et, log_fn=None)
-        logging.info(f"Loading ModelStack(stack_sz: {self.model_et.stack_sz})")
+        cnt, str_cnt = utils.count_parameters(self.model_x0, log_fn=None)
+        logging.info(f"Loading ModelStack(stack_sz: {self.model_x0.stack_sz})")
         logging.info(f"  config type  : {self.config.model.type}")
         logging.info(f"  param size   : {cnt} => {str_cnt}")
         logging.info(f"  ckpt_path_arr: {len(ckpt_path_arr)}")
-        ms_et = self.model_et.model_stack
         ms_x0 = self.model_x0.model_stack
         for i, ckpt_path in enumerate(ckpt_path_arr):
             tsr = utils.extract_ts_range(ckpt_path)
-            self.model_et.tsr_stack[i] = tsr
             self.model_x0.tsr_stack[i] = tsr
-            logging.info(f"  load ckpt2 {i: 2d} : {ckpt_path}. ts: {self.model_et.tsr_stack[i]}")
+            logging.info(f"  load ckpt {i: 2d} : {ckpt_path}. ts: {self.model_x0.tsr_stack[i]}")
             states = torch.load(ckpt_path, map_location=self.config.device)
-            ms_et[i].load_state_dict(states['model'], strict=True)
             ms_x0[i].load_state_dict(states['model_x0'], strict=True)
         # for
-        self.model_et = self.model_et.to(self.device)
         self.model_x0 = self.model_x0.to(self.device)
-        if len(self.args.gpu_ids) > 0:
-            self.model_et = torch.nn.DataParallel(self.model_et, device_ids=self.args.gpu_ids)
-            self.model_x0 = torch.nn.DataParallel(self.model_x0, device_ids=self.args.gpu_ids)
-        logging.info(f"  model_et.to({self.device})")
         logging.info(f"  model_x0.to({self.device})")
-        logging.info(f"  torch.nn.DataParallel(model_et, device_ids={self.args.gpu_ids})")
-        logging.info(f"  torch.nn.DataParallel(model_x0, device_ids={self.args.gpu_ids})")
+        if len(self.args.gpu_ids) > 0:
+            self.model_x0 = torch.nn.DataParallel(self.model_x0, device_ids=self.args.gpu_ids)
+            logging.info(f"  torch.nn.DataParallel(model_x0, device_ids={self.args.gpu_ids})")
         return True
 
     def model_load(self):
         ckpt_path = self.args.sample_ckpt_path
-        logging.info(f"load ckpt2: {ckpt_path}")
+        logging.info(f"load ckpt0: {ckpt_path}")
         states = torch.load(ckpt_path, map_location=self.config.device)
-        self.model_et.load_state_dict(states['model'], strict=True)
         self.model_x0.load_state_dict(states['model_x0'], strict=True)
-        self.model_et = self.model_et.to(self.device)
         self.model_x0 = self.model_x0.to(self.device)
-        logging.info(f"  model_et.to({self.device})")
         logging.info(f"  model_x0.to({self.device})")
         if len(self.args.gpu_ids) > 1:
-            logging.info(f"  torch.nn.DataParallel(model_et, device_ids={self.args.gpu_ids})")
-            self.model_et = torch.nn.DataParallel(self.model_et, device_ids=self.args.gpu_ids)
             logging.info(f"  torch.nn.DataParallel(model_x0, device_ids={self.args.gpu_ids})")
             self.model_x0 = torch.nn.DataParallel(self.model_x0, device_ids=self.args.gpu_ids)
         return True

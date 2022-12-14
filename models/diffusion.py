@@ -217,10 +217,8 @@ class Model(nn.Module):
         self.temb = nn.Module()
         # The "dense" below is not a property; it's just an arbitrary name.
         self.temb.dense = nn.ModuleList([
-            torch.nn.Linear(self.ch,
-                            self.temb_ch),
-            torch.nn.Linear(self.temb_ch,
-                            self.temb_ch),
+            torch.nn.Linear(self.ch, self.temb_ch),
+            torch.nn.Linear(self.temb_ch, self.temb_ch),
         ])
 
         # downsampling
@@ -245,7 +243,7 @@ class Model(nn.Module):
                                          temb_channels=self.temb_ch,
                                          dropout=dropout))
                 block_in = block_out
-                if curr_res in attn_resolutions:
+                if curr_res in attn_resolutions:  # attn_resolutions: [16, ]
                     attn.append(AttnBlock(block_in))
             # for i_block
             down = nn.Module()
@@ -312,16 +310,35 @@ class Model(nn.Module):
         temb = nonlinearity(temb)                   # shape [256, 512]
         temb = self.temb.dense[1](temb)             # shape [256, 512]
 
-        # downsampling
+        # down-sampling
         hs = [self.conv_in(x)]
-        for i_level in range(self.ch_mult_len):
-            for i_block in range(self.num_res_blocks):
+        for i_level in range(self.ch_mult_len):     # ch_mult = [1, 2, 2, 2]
+            for i_block in range(self.num_res_blocks):  # num_res_blocks = 2
                 h = self.down[i_level].block[i_block](hs[-1], temb)
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
             if i_level != self.ch_mult_len-1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
+        # after each level, the len(hs):
+        #   i_level: len(hs)
+        #        0 : 4
+        #        1 : 7
+        #        2 : 10
+        #        3 : 12
+        # Shape of each element in hs, from hs[0] to hs[11]
+        #   [250, 128, 32, 32]
+        #   [250, 128, 32, 32]
+        #   [250, 128, 32, 32]
+        #   [250, 128, 16, 16]
+        #   [250, 256, 16, 16]
+        #   [250, 256, 16, 16]
+        #   [250, 256, 8,  8 ]
+        #   [250, 256, 8,  8 ]
+        #   [250, 256, 8,  8 ]
+        #   [250, 256, 4,  4 ]
+        #   [250, 256, 4,  4 ]
+        #   [250, 256, 4,  4 ]
 
         # middle
         h = hs[-1]
@@ -329,7 +346,7 @@ class Model(nn.Module):
         h = self.mid.attn_1(h)
         h = self.mid.block_2(h, temb)
 
-        # upsampling
+        # up-sampling
         for i_level in reversed(range(self.ch_mult_len)):
             for i_block in range(self.num_res_blocks+1):
                 h = self.up[i_level].block[i_block](torch.cat([h, hs.pop()], dim=1), temb)
@@ -337,6 +354,22 @@ class Model(nn.Module):
                     h = self.up[i_level].attn[i_block](h)
             if i_level != 0:
                 h = self.up[i_level].upsample(h)
+        # shape of h during up-sampling:
+        #   [250, 256, 4, 4]
+        #   [250, 256, 4, 4]
+        #   [250, 256, 4, 4]
+        #   [250, 256, 8, 8] ------ after self.up[i_level].upsample(h)
+        #   [250, 256, 8, 8]
+        #   [250, 256, 8, 8]
+        #   [250, 256, 8, 8]
+        #   [250, 256, 16, 16] ------ after self.up[i_level].upsample(h)
+        #   [250, 256, 16, 16]
+        #   [250, 256, 16, 16]
+        #   [250, 256, 16, 16]
+        #   [250, 256, 32, 32] ------ after self.up[i_level].upsample(h)
+        #   [250, 128, 32, 32]
+        #   [250, 128, 32, 32]
+        #   [250, 128, 32, 32]
 
         # end
         h = self.norm_out(h)

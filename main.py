@@ -10,11 +10,13 @@ import numpy as np
 import torch.utils.tensorboard as tb
 
 from runners.diffusion_sampling import DiffusionSampling
+from runners.diffusion_sampling0 import DiffusionSampling0
 from runners.diffusion_sampling2 import DiffusionSampling2
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
 from runners.diffusion_latent_sampling import DiffusionLatentSampling
+from runners.diffusion_training0 import DiffusionTraining0
 from runners.diffusion_training2 import DiffusionTraining2
 
 from utils import str2bool, dict2namespace
@@ -47,10 +49,10 @@ def parse_args_and_config():
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
-    parser.add_argument("--sample_ckpt_path", type=str, default='./exp/model_sampling/ckpt_E0984_B0055.pth')
     parser.add_argument("--todo", type=str, default='lsample', help="train|sample|psample|lsample")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
+    parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
     parser.add_argument("--sample_ckpt_dir", type=str, default='./exp/model_S4E1000TSxxx')
     parser.add_argument("--sample_batch_size", type=int, default='500', help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
@@ -222,6 +224,14 @@ def main():
         elif args.todo == 'sample2':
             logging.info(f"sample2 ===================================")
             runner = DiffusionSampling2(args, config, device=config.device)
+            runner.sample()
+        elif args.todo == 'train0':
+            logging.info(f"train0 ===================================")
+            runner = DiffusionTraining0(args, config, device=config.device)
+            runner.train()
+        elif args.todo == 'sample0':
+            logging.info(f"sample0 ===================================")
+            runner = DiffusionSampling0(args, config, device=config.device)
             runner.sample()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
