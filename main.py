@@ -42,7 +42,6 @@ def parse_args_and_config():
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
     parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
-    parser.add_argument('--ema_updy', type=int, default=10, help='EMA update every step')
     parser.add_argument('--ema_start_epoch', type=int, default=50, help='EMA start epoch')
     parser.add_argument("--model_in_channels", type=int, default='0', help='model.in_channels')
     parser.add_argument("--data_resolution", type=int, default='0', help='data.resolution')

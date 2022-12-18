@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from models.diffusion import ModelStack
+from models.ema import EMAHelper
 from utils import count_parameters, extract_ts_range
 
 
@@ -278,14 +279,21 @@ class Diffusion(object):
             ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
         logging.info(f"load ckpt: {ckpt_path}")
         states = torch.load(ckpt_path, map_location=self.config.device)
-        if isinstance(states, dict):
-            model.load_state_dict(states['model'], strict=True)
-        else:
-            model.load_state_dict(states[0], strict=True)
-        logging.info(f"model({type(model).__name__})")
-        logging.info(f"  model.to({self.device})")
+        key = 'model' if isinstance(states, dict) else 0
+        model.load_state_dict(states[key], strict=True)
+        if self.args.ema_flag:
+            logging.info(f"  ema_helper: EMAHelper(mu={self.args.ema_rate})")
+            ema_helper = EMAHelper(mu=self.args.ema_rate)
+            ema_helper.register(model)
+            key = "ema_helper" if isinstance(states, dict) else -1
+            logging.info(f"  ema_helper: load from states[{key}]")
+            ema_helper.load_state_dict(states[key])
+            logging.info(f"  ema_helper: apply to model {type(model).__name__}")
+            ema_helper.ema(model)
+
+        logging.info(f"  model({type(model).__name__}).to({self.device})")
         model = model.to(self.device)
         if len(self.args.gpu_ids) > 1:
-            logging.info(f"torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
+            logging.info(f"  torch.nn.DataParallel(model, device_ids={self.args.gpu_ids})")
             model = torch.nn.DataParallel(model, device_ids=self.args.gpu_ids)
         return model

@@ -27,7 +27,6 @@ class DiffusionTraining0(Diffusion):
         self.ema_x0 = None
         self.ema_flag = args.ema_flag
         self.ema_rate = args.ema_rate or config.model.ema_rate
-        self.ema_updy = args.ema_updy
         self.ema_start_epoch = args.ema_start_epoch
 
     def train(self):
@@ -78,7 +77,6 @@ class DiffusionTraining0(Diffusion):
         logging.info(f"  param size : {cnt} => {str_cnt}")
         logging.info(f"  ema_flag   : {self.ema_flag}")
         logging.info(f"  ema_rate   : {self.ema_rate}")
-        logging.info(f"  ema_updy   : {self.ema_updy}")
         logging.info(f"  ema_start_epoch: {self.ema_start_epoch}")
         logging.info(f"  stack_sz   : {self.model_x0.stack_sz}") if model_name == 'ModelStack' else None
         logging.info(f"  ts_cnt     : {self.model_x0.ts_cnt}") if model_name == 'ModelStack' else None
@@ -95,8 +93,8 @@ class DiffusionTraining0(Diffusion):
         logging.info(f"  lr         : {self.args.lr}")
 
         if self.ema_flag:
-            self.ema_x0 = EMAHelper(mu=self.ema_rate, update_every=self.ema_updy)
-            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate}, update_every={self.ema_updy})")
+            self.ema_x0 = EMAHelper(mu=self.ema_rate)
+            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate})")
         else:
             self.ema_x0 = None
             logging.info(f"  ema_helper: None")
@@ -232,7 +230,7 @@ class DiffusionTraining0(Diffusion):
 
         ema_update_flag = 0
         if self.ema_flag and epoch >= self.ema_start_epoch:
-            ema_update_flag = self.ema_x0.update_ema(self.model_x0)
+            ema_update_flag = self.ema_x0.update(self.model_x0)
         return loss_x0, xt, ema_update_flag
 
     def load_model(self, states):

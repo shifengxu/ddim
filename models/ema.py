@@ -2,10 +2,8 @@ import torch.nn as nn
 
 
 class EMAHelper(object):
-    def __init__(self, mu=0.999, update_every=10):
+    def __init__(self, mu=0.999):
         self.mu = mu
-        self.step = 0
-        self.update_every = update_every  # update every step
         self.shadow = {}
 
     def register(self, module):
@@ -18,10 +16,11 @@ class EMAHelper(object):
     def update(self, module):
         if isinstance(module, nn.DataParallel):
             module = module.module
+        d = 1. - self.mu
         for name, param in module.named_parameters():
             if param.requires_grad:
-                self.shadow[name].data = (
-                    1. - self.mu) * param.data + self.mu * self.shadow[name].data
+                self.shadow[name].data = d * param.data + self.mu * self.shadow[name].data
+        return 1
 
     def ema(self, module):
         if isinstance(module, nn.DataParallel):
@@ -29,24 +28,6 @@ class EMAHelper(object):
         for name, param in module.named_parameters():
             if param.requires_grad:
                 param.data.copy_(self.shadow[name].data)
-
-    def update_ema(self, module):
-        """Equal as update() and ema()"""
-        self.step += 1
-        if self.step % self.update_every != 0:
-            return 0
-        if isinstance(module, nn.DataParallel):
-            module = module.module
-        d = 1. - self.mu
-        for name, param in module.named_parameters():
-            if param.requires_grad:
-                self.shadow[name].data = d * param.data + self.mu * self.shadow[name].data
-        # for
-        for name, param in module.named_parameters():
-            if param.requires_grad:
-                param.data.copy_(self.shadow[name].data)
-        # for
-        return 1
 
     def ema_copy(self, module):
         if isinstance(module, nn.DataParallel):

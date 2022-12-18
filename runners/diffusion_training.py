@@ -27,12 +27,10 @@ class DiffusionTraining(Diffusion):
         self.ema_helper = None
         self.ema_flag = args.ema_flag
         self.ema_rate = args.ema_rate or config.model.ema_rate
-        self.ema_updy = args.ema_updy
         self.ema_start_epoch = args.ema_start_epoch
 
     def train(self):
         args, config = self.args, self.config
-        tb_logger = self.config.tb_logger
         dataset, test_dataset = get_dataset(args, config)
         logging.info(f"train dataset:")
         logging.info(f"  root : {dataset.root}")
@@ -80,7 +78,6 @@ class DiffusionTraining(Diffusion):
         logging.info(f"  param size : {cnt} => {str_cnt}")
         logging.info(f"  ema_flag   : {self.ema_flag}")
         logging.info(f"  ema_rate   : {self.ema_rate}")
-        logging.info(f"  ema_updy   : {self.ema_updy}")
         logging.info(f"  ema_start_epoch: {self.ema_start_epoch}")
         logging.info(f"  stack_sz   : {self.model.stack_sz}") if model_name == 'ModelStack' else None
         logging.info(f"  ts_cnt     : {self.model.ts_cnt}") if model_name == 'ModelStack' else None
@@ -97,8 +94,8 @@ class DiffusionTraining(Diffusion):
         logging.info(f"  lr: {self.args.lr}")
 
         if self.ema_flag:
-            self.ema_helper = EMAHelper(mu=self.ema_rate, update_every=self.ema_updy)
-            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate}, update_every={self.ema_updy})")
+            self.ema_helper = EMAHelper(mu=self.ema_rate)
+            logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate})")
         else:
             self.ema_helper = None
             logging.info(f"  ema_helper: None")
@@ -235,35 +232,8 @@ class DiffusionTraining(Diffusion):
 
         ema_update_flag = 0
         if self.ema_flag and epoch >= self.ema_start_epoch:
-            ema_update_flag = self.ema_helper.update_ema(self.model)
+            ema_update_flag = self.ema_helper.update(self.model)
         return loss, xt, ema_update_flag
-
-    def train_model_stack(self, x, e):
-        config = self.config
-        b_sz = x.size(0)  # batch size
-        stack_sz = config.model.stack_size if hasattr(config.model, 'stack_size') else 5
-        ts_cnt = self.num_timesteps
-        brick_cvg = ts_cnt // stack_sz
-        total_loss = 0.
-        for k in range(stack_sz):
-            low = brick_cvg * k
-            high = brick_cvg * (k + 1)
-            if high > ts_cnt: high = ts_cnt
-            t = torch.randint(low=low, high=high, size=(b_sz,), device=self.device)
-            if not self._ts_log_flag:
-                self._ts_log_flag = True
-                logging.info(f"train_model_stack() timestep: torch.randint(low={self.ts_low}, "
-                             f"high={self.ts_high}, size=({b_sz},), device={self.device})")
-            loss, xt = noise_estimation_loss2(self.model, x, t, e, self.alphas_cumprod)
-            self.optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.optim.grad_clip)
-            self.optimizer.step()
-            if self.ema_flag:
-                self.ema_helper.update(self.model)
-            total_loss += loss
-        avg_loss = total_loss / stack_sz
-        return avg_loss, xt
 
     def load_model(self, states):
         if isinstance(states, dict):
@@ -272,6 +242,7 @@ class DiffusionTraining(Diffusion):
             # And that was not convenient for adding or dropping items.
             # Therefore, we change to use dict.
             return self.load_model_dict(states)
+
         self.model.load_state_dict(states[0])
 
         states[1]["param_groups"][0]["eps"] = self.config.optim.eps
