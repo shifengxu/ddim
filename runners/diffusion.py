@@ -98,6 +98,7 @@ class Diffusion(object):
         logging.info(f"  ts_high       : {self.ts_high}")
         logging.info(f"  num_timesteps : {self.num_timesteps}")
         logging.info(f"  beta_schedule : {self.beta_schedule}")
+        logging.info(f"  eta           : {self.args.eta}")
 
         if self.model_var_type == "fixedlarge":
             self.logvar = self.betas.log()
@@ -279,17 +280,22 @@ class Diffusion(object):
             ckpt_path = os.path.join(self.args.log_path, f"ckpt_{self.config.sampling.ckpt_id}.pth")
         logging.info(f"load ckpt: {ckpt_path}")
         states = torch.load(ckpt_path, map_location=self.config.device)
-        key = 'model' if isinstance(states, dict) else 0
-        model.load_state_dict(states[key], strict=True)
-        if self.args.ema_flag:
-            logging.info(f"  ema_helper: EMAHelper(mu={self.args.ema_rate})")
-            ema_helper = EMAHelper(mu=self.args.ema_rate)
-            ema_helper.register(model)
-            key = "ema_helper" if isinstance(states, dict) else -1
-            logging.info(f"  ema_helper: load from states[{key}]")
-            ema_helper.load_state_dict(states[key])
-            logging.info(f"  ema_helper: apply to model {type(model).__name__}")
-            ema_helper.ema(model)
+        if 'model' not in states:
+            logging.info(f"  !!! Not found 'model' in states. Will take it as pure model")
+            model.load_state_dict(states)
+        else:
+            key = 'model' if isinstance(states, dict) else 0
+            model.load_state_dict(states[key], strict=True)
+            if self.args.ema_flag:
+                logging.info(f"  ema_helper: EMAHelper(mu={self.args.ema_rate})")
+                ema_helper = EMAHelper(mu=self.args.ema_rate)
+                ema_helper.register(model)
+                key = "ema_helper" if isinstance(states, dict) else -1
+                logging.info(f"  ema_helper: load from states[{key}]")
+                ema_helper.load_state_dict(states[key])
+                logging.info(f"  ema_helper: apply to model {type(model).__name__}")
+                ema_helper.ema(model)
+        # endif
 
         logging.info(f"  model({type(model).__name__}).to({self.device})")
         model = model.to(self.device)

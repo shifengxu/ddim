@@ -22,6 +22,7 @@ class DiffusionTraining(Diffusion):
     def __init__(self, args, config, device=None):
         super().__init__(args, config, device)
         self.model = None
+        self.m_ema = None   # model for EMA
         self.optimizer = None
         self.scheduler = None
         self.ema_helper = None
@@ -69,6 +70,8 @@ class DiffusionTraining(Diffusion):
         out_channels = args.model_in_channels
         resolution = args.data_resolution
         self.model = Model(config, in_channels=in_channels, out_channels=out_channels, resolution=resolution)
+        self.m_ema = Model(config, in_channels=in_channels, out_channels=out_channels, resolution=resolution)
+        self.m_ema.eval()  # only used for evaluation
         # model = ModelStack(config)
         cnt, str_cnt = count_parameters(self.model, log_fn=None)
         model_name = type(self.model).__name__
@@ -88,6 +91,7 @@ class DiffusionTraining(Diffusion):
         else:
             e_cnt = self.config.training.n_epochs
         self.model.to(self.device)
+        self.m_ema.to(self.device)
         self.optimizer = get_optimizer(self.config, self.model.parameters(), self.args.lr)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=e_cnt)
         logging.info(f"optimizer: {type(self.optimizer).__name__} ===================")
@@ -109,16 +113,18 @@ class DiffusionTraining(Diffusion):
             start_epoch = self.load_model(states)
         logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
         self.model = torch.nn.DataParallel(self.model, device_ids=args.gpu_ids)
+        self.m_ema = torch.nn.DataParallel(self.m_ema, device_ids=args.gpu_ids)
         cudnn.benchmark = True
 
         b_cnt = len(train_loader)
         eb_cnt = (e_cnt - start_epoch) * b_cnt  # epoch * batch
         loss_avg_arr = []
         test_avg_arr = []  # test dataset loss avg array
+        test_ema_arr = []  # test dataset loss avg array on self.m_ema (EMA model)
         data_start = time.time()
         self.model.train()
         log_interval = 1 if model_name == 'ModelStack' else 10
-        test_ts_arr = []  # time-step array for testing
+        ts_arr_arr = [[], [], []]  # array of array, for time-step array when testing
         logging.info(f"log_interval: {log_interval}")
         logging.info(f"start_epoch : {start_epoch}")
         logging.info(f"epoch_cnt   : {e_cnt}")
@@ -155,51 +161,61 @@ class DiffusionTraining(Diffusion):
 
             # for loader
             loss_avg = loss_ttl / loss_cnt
-            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f}. ema_cnt:{ema_cnt}")
+            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f} . ema_cnt:{ema_cnt}")
             loss_avg_arr.append(loss_avg)
             # self.scheduler.step()
             if epoch % 100 == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
             if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
-                logging.info(f"E{epoch}. calculate loss on test dataset...test_ts_arr:{len(test_ts_arr)}")
+                ts_msg = f"ts_arr_arr[{len(ts_arr_arr)}, {len(ts_arr_arr[0])}]"
+                logging.info(f"E{epoch}. calculate loss on test dataset...{ts_msg}")
                 self.model.eval()
-                test_loss_avg = self.get_avg_loss(self.model, test_loader, test_ts_arr)
+                test_loss_avg = self.get_avg_loss(self.model, test_loader, ts_arr_arr)
                 self.model.train()
                 logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:8.4f}")
                 test_avg_arr.append(test_loss_avg)
+                if self.ema_flag and epoch >= self.ema_start_epoch:
+                    self.ema_helper.ema(self.m_ema)
+                    test_ema_avg = self.get_avg_loss(self.m_ema, test_loader, ts_arr_arr)
+                    test_ema_arr.append(test_ema_avg)
+                    logging.info(f"E{epoch}. test_ema_avg :{test_ema_avg:8.4f}")
         # for epoch
         utils.output_list(loss_avg_arr, 'loss_avg')
         utils.output_list(test_avg_arr, 'test_avg')
+        utils.output_list(test_ema_arr, 'test_ema')
+
     # train(self)
 
-    def get_avg_loss(self, model, test_loader, test_ts_arr):
+    def get_avg_loss(self, model, test_loader, ts_arr_arr):
         """
-        By test_ts_arr, we can make sure that the testing process is deterministic.
+        By ts_arr_arr, we can make sure that the testing process is deterministic.
         The first testing round will generate the timesteps. and the consequence
         testing rounds will reuse those timesteps.
         :param model:
         :param test_loader:
-        :param test_ts_arr: timestep array
+        :param ts_arr_arr: timestep array
         :return:
         """
         loss_ttl = 0.
         loss_cnt = 0
         with torch.no_grad():
-            for i, (x, y) in enumerate(test_loader):
-                x = x.to(self.device)
-                x = data_transform(self.config, x)
-                e = torch.randn_like(x)
+            for ts_arr in ts_arr_arr:  # run multiple rounds, then get more accurate avg loss
+                for i, (x, y) in enumerate(test_loader):
+                    x = x.to(self.device)
+                    x = data_transform(self.config, x)
+                    e = torch.randn_like(x)
 
-                b_sz = x.size(0)  # batch size
-                if len(test_ts_arr) > i:
-                    t = test_ts_arr[i]
-                else:
-                    t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
-                    test_ts_arr.append(t)
-                loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
-                loss_ttl += loss.item()
-                loss_cnt += 1
-            # for loader
+                    b_sz = x.size(0)  # batch size
+                    if len(ts_arr) > i:
+                        t = ts_arr[i]
+                    else:
+                        t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+                        ts_arr.append(t)
+                    loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
+                    loss_ttl += loss.item()
+                    loss_cnt += 1
+                # for loader
+            # for idx of arr
         # with
         loss_avg = loss_ttl / loss_cnt
         return loss_avg
