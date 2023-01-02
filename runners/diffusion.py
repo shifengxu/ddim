@@ -186,6 +186,9 @@ class Diffusion(object):
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)
             betas = 1 - alphas
+        elif self.beta_schedule.startswith('file:'):
+            f_path = self.beta_schedule.split(':')[1]
+            betas, alphas, alphas_cumprod = self.get_schedule_from_file(f_path)
         else:
             betas = get_beta_schedule(
                 beta_schedule=self.beta_schedule,
@@ -197,6 +200,43 @@ class Diffusion(object):
             alphas = 1.0 - betas
             alphas_cumprod = alphas.cumprod(dim=0)
         return alphas, alphas_cumprod, betas
+
+    def get_schedule_from_file(self, f_path):
+        if not os.path.exists(f_path):
+            raise Exception(f"File not found: {f_path}")
+        if not os.path.isfile(f_path):
+            raise Exception(f"Not file: {f_path}")
+        logging.info(f"Read file: {f_path}")
+        with open(f_path, 'r') as f:
+            lines = f.readlines()
+        cnt_empty = 0
+        cnt_comment = 0
+        s_type = ''
+        f_arr = []
+        for line in lines:
+            line = line.strip()
+            if line == '':
+                cnt_empty += 1
+                continue
+            if line.startswith('#'):
+                cnt_comment += 1
+                continue
+            if line.startswith('type:'):
+                s_type = line.split(':')[1]
+                continue
+            flt = float(line)
+            f_arr.append(flt)
+        logging.info(f"  cnt_valid  : {len(f_arr)}")
+        logging.info(f"  cnt_empty  : {cnt_empty}")
+        logging.info(f"  cnt_comment: {cnt_comment}")
+        logging.info(f"  s_type     : {s_type}")
+        if s_type == 'alpha':
+            alphas = torch.tensor(f_arr).float().to(self.device)
+            betas = 1.0 - alphas
+            alphas_cumprod = torch.cumprod(alphas, dim=0)
+        else:
+            raise Exception(f"Unsupported s_type: {s_type} from file {f_path}")
+        return betas, alphas, alphas_cumprod
 
     def generalized_steps(self, x_T, seq, model, **kwargs):
         """

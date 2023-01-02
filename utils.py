@@ -99,13 +99,29 @@ def make_dirs_if_need(*f_dirs, log_fn=log_info):
 def output_list(lst, name, log_fn=log_info):
     def num2str(num_arr):
         flt_arr = [float(n) for n in num_arr]
-        str_arr = [f"{f:10.6f}" for f in flt_arr]
+        str_arr = [f"{f:10.8f}" for f in flt_arr]
         return " ".join(str_arr)
 
+    if lst is None or len(lst) == 0:
+        log_fn(f"{name}: {lst}")
+        return
     cnt = len(lst)
     for i in range(0, cnt, 10):
         r = min(i+10, cnt)  # right bound
         log_fn(f"{name}[{i:04d}~]: {num2str(lst[i:r])}")
+
+def save_list(lst, name, f_path: str):
+    def num2str(num_arr):
+        flt_arr = [float(n) for n in num_arr]
+        str_arr = [f"{f:.11f}" for f in flt_arr]
+        return " ".join(str_arr)
+
+    cnt = len(lst) if lst is not None else 0
+    with open(f_path, 'w') as f_ptr:
+        for i in range(0, cnt, 10):
+            r = min(i + 10, cnt)  # right bound
+            f_ptr.write(f"{name}[{i:04d}~]: {num2str(lst[i:r])}\n")
+    # with
 
 def dict2namespace(config):
     namespace = argparse.Namespace()
@@ -116,4 +132,3 @@ def dict2namespace(config):
             new_value = value
         setattr(namespace, key, new_value)
     return namespace
-
