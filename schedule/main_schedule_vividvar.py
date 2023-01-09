@@ -3,26 +3,24 @@ Find beta schedule by vivid variance. Also use final var as target
 """
 import argparse
 import sys
-import os
 import time
 import matplotlib.pyplot as plt
-import numpy as np
-import torch
 from torch import optim
 from torch.backends import cudnn
 from torch.nn import DataParallel
 
-import utils
-from base import ScheduleBase, Schedule1Model
+from base import *
 from var_simulator2 import VarSimulator2
 
 log_fn = utils.log_info
 
 torch.set_printoptions(sci_mode=False)
+torch.autograd.set_detect_anomaly(True)
 
 def parse_args():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
     parser.add_argument('--gpu_ids', type=int, nargs='+', default=[7])
+    parser.add_argument('--todo', type=str, default='train')
     parser.add_argument("--n_epochs", type=int, default=500000)
     parser.add_argument('--lr', type=float, default=0.000001)
     parser.add_argument('--output_dir', type=str, default='./output7_schedule1')
@@ -87,13 +85,7 @@ def model_generate(args):
         model = DataParallel(model, device_ids=args.gpu_ids)
     return model, e_start
 
-def main():
-    args = parse_args()
-    log_fn(f"pid : {os.getpid()}")
-    log_fn(f"cwd : {os.getcwd()}")
-    log_fn(f"args: {args}")
-    var_arr = ScheduleBase.load_floats(args.weight_file)
-    vs = VarSimulator2(args.beta_schedule, var_arr, mode=args.vs_mode)
+def save_vs_plot(args, vs, var_arr):
     ts_cnt = len(var_arr)
     x_arr = ScheduleBase.get_alpha_cumprod(args.beta_schedule, ts_cnt)
     y_arr = vs(x_arr)
@@ -109,7 +101,34 @@ def main():
     plt.close()
     log_fn(f"saved: {f_path}")
 
+def sample(args, model, e_idx, vs):
+    log_fn(f"sample() =======================")
+    model.eval()
+    with torch.no_grad():
+        alpha, aacum = model()
+    new_weight_arr = vs(aacum)
+    l_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
+    aa_min = aacum[-1]
+    l_min = torch.square(aa_min - args.aa_low) * args.aacum0_lambda
+    loss = torch.add(l_var, l_min)
+    el_str = f"Sample by epoch:{e_idx:06d}; loss:{loss:05.2f} {l_var:05.2f} {l_min:05.2f}"
+    status_save(args, alpha, aacum, new_weight_arr, el_str)
+    log_fn(f" sampling done.")
+
+def main():
+    args = parse_args()
+    log_fn(f"pid : {os.getpid()}")
+    log_fn(f"cwd : {os.getcwd()}")
+    log_fn(f"args: {args}")
+    var_arr = ScheduleBase.load_floats(args.weight_file)
+    vs = VarSimulator2(args.beta_schedule, var_arr, mode=args.vs_mode)
+    save_vs_plot(args, vs, var_arr)
+    vs.to(args.device)
+
     model, e_start = model_generate(args)
+    if args.todo == 'sample':
+        return sample(args, model, e_start, vs)
+
     lr = args.lr
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
     e_cnt = args.n_epochs
@@ -120,13 +139,12 @@ def main():
     log_fn(f"torch.seed() : {torch.seed()}")
     log_fn(f"aacum0_lambda: {args.aacum0_lambda}")
     model.train()
-    aacum, alpha, coefficient = None, None, None
-    vs.to(args.device)
+    aacum, alpha = None, None
     start_time = time.time()
     loss_track = None
     for e_idx in range(e_start, e_cnt):
         optimizer.zero_grad()
-        alpha, aacum, coefficient = model()
+        alpha, aacum = model()
         new_weight_arr = vs(aacum)
         loss_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
         aa_min = aacum[-1]
@@ -142,7 +160,7 @@ def main():
             if loss_track is None or loss_track > loss.item():
                 loss_track = loss.item()
                 el_str = f"Epoch:{e_idx:06d}; loss:{loss:05.2f} {loss_var:05.2f} {loss_min:05.2f}"
-                status_save(args, alpha, aacum, coefficient, new_weight_arr, el_str)
+                status_save(args, alpha, aacum, new_weight_arr, el_str)
 
         if e_idx > 0 and e_idx % 50000 == 0 or e_idx == e_cnt - 1:
             model_save(args, model, e_idx)
@@ -151,10 +169,12 @@ def main():
     utils.output_list(alpha, 'alpha')
     return 0
 
-def status_save(args, alpha, aacum, coefficient, new_weight_arr, el_str):
+def status_save(args, alpha, aacum, weight_arr, el_str):
+    alpha[0] += 1e-12
+    coef = ((1 - aacum).sqrt() - (alpha - aacum).sqrt()) / alpha.sqrt()
     fig, axs = plt.subplots()
     x_axis = np.arange(0, 1000)
-    std_d = coefficient.detach() * torch.sqrt(new_weight_arr)  # standard deviation
+    std_d = coef.detach() * torch.sqrt(weight_arr)  # standard deviation
     axs.plot(x_axis, std_d.cpu().numpy(), label='std vividvar')
     axs.set_xlabel(f"timestep. {el_str}")
     plt.legend()

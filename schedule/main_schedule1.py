@@ -111,7 +111,8 @@ def main():
     start_time = time.time()
     for e_idx in range(e_start, e_cnt):
         optimizer.zero_grad()
-        alpha, aacum, coefficient = model()
+        alpha, aacum = model()
+        coefficient = ((1 - aacum).sqrt() - (alpha - aacum).sqrt()) / alpha.sqrt()
         if weight_arr is not None:
             coefficient = torch.mul(coefficient, weight_arr)
 

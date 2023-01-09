@@ -253,7 +253,6 @@ class Schedule1Model(nn.Module):
 
         # make sure alpha > aacum.
         # Or else, the 2nd epoch will have output: tensor([nan, nan, ,,,])
+        # When calculating the final variance, it will use: (alpha-aacum).sqrt()
         alpha[0] += 1e-12
-
-        coefficient = ((1-aacum).sqrt() - (alpha-aacum).sqrt()) / alpha.sqrt()
-        return alpha, aacum, coefficient
+        return alpha, aacum
