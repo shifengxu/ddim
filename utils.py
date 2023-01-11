@@ -110,10 +110,10 @@ def output_list(lst, name, ftm_str="{:10.8f}", log_fn=log_info):
         r = min(i+10, cnt)  # right bound
         log_fn(f"{name}[{i:04d}~]: {num2str(lst[i:r])}")
 
-def save_list(lst, name, f_path: str, msg=None):
+def save_list(lst, name, f_path: str, msg=None, fmt="{:.11f}"):
     def num2str(num_arr):
         flt_arr = [float(n) for n in num_arr]
-        str_arr = [f"{f:.11f}" for f in flt_arr]
+        str_arr = [fmt.format(f) for f in flt_arr]
         return " ".join(str_arr)
 
     cnt = len(lst) if lst is not None else 0

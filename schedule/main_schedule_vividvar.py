@@ -22,11 +22,12 @@ def parse_args():
     parser.add_argument('--gpu_ids', type=int, nargs='+', default=[7])
     parser.add_argument('--todo', type=str, default='train')
     parser.add_argument("--n_epochs", type=int, default=500000)
+    parser.add_argument('--log_interval', type=int, default=2000)
     parser.add_argument('--lr', type=float, default=0.000001)
     parser.add_argument('--output_dir', type=str, default='./output7_schedule1')
     parser.add_argument('--aa_low', type=float, default=0.0001, help="Alpha Accum lower bound")
     parser.add_argument("--aacum0_lambda", type=float, default=100000000)
-    parser.add_argument("--weight_file", type=str, default='./output7_schedule1/weight_loss.txt')
+    parser.add_argument("--weight_file", type=str, default='./output7_schedule1/weight_loss_smooth.txt')
     parser.add_argument("--load_ckpt_path", type=str, default='')
     parser.add_argument("--beta_schedule", type=str, default="cosine")
     parser.add_argument("--vs_mode", type=str, default="vivid", help='var_simulator mode: vivid|static')
@@ -72,13 +73,14 @@ def model_load(ckpt_path, model):
     return states['cur_epoch']
 
 def model_generate(args):
-    model = Schedule1Model()
+    model = Schedule1Model(out_channels=1000)
     e_start = 0  # epoch start
     if args.load_ckpt_path:
         e_start = model_load(args.load_ckpt_path, model)
 
     log_fn(f"model: {type(model).__name__}")
-    log_fn(f"model.to({args.device})")
+    log_fn(f"  out_channels: {model.out_channels}")
+    log_fn(f"  model.to({args.device})")
     model.to(args.device)
     if len(args.gpu_ids) > 1:
         log_fn(f"model = DataParallel(model, device_ids={args.gpu_ids})")
@@ -153,7 +155,7 @@ def main():
         loss.backward()
         model.gradient_clip()
         optimizer.step()
-        if e_idx % 2000 == 0 or e_idx == e_cnt - 1:
+        if e_idx % args.log_interval == 0 or e_idx == e_cnt - 1:
             elp, eta = utils.get_time_ttl_and_eta(start_time, e_idx - e_start, e_cnt - e_start)
             log_fn(f"E{e_idx:05d}/{e_cnt} loss: {loss:.8f} {loss_var:.8f} {loss_min:.8f}."
                    f" aa:{aacum[0]:.12f}~{aacum[-1]:.8f}. elp:{elp}, eta:{eta}")
@@ -173,9 +175,9 @@ def status_save(args, alpha, aacum, weight_arr, el_str):
     alpha[0] += 1e-12
     coef = ((1 - aacum).sqrt() - (alpha - aacum).sqrt()) / alpha.sqrt()
     fig, axs = plt.subplots()
-    x_axis = np.arange(0, 1000)
+    x_axis = np.arange(0, len(aacum))
     std_d = coef.detach() * torch.sqrt(weight_arr)  # standard deviation
-    axs.plot(x_axis, std_d.cpu().numpy(), label='std vividvar')
+    axs.plot(x_axis, std_d.detach().cpu().numpy(), label='std vividvar')
     axs.set_xlabel(f"timestep. {el_str}")
     plt.legend()
     o_dir = args.output_dir

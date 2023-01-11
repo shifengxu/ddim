@@ -59,13 +59,25 @@ class VarSimulator2:
             rbi[flag1] = mdi[flag1]
         # for
         # after iteration, lbi will be the target index
-        flag0 = aacum <= self.x_arr[rbi]  # handle the case aacum == x_arr[-1]
-        lbi[flag0] = rbi[flag0]
+        # But the input aacum value may have difference with x_arr. So here
+        # we handle the difference and make the result smooth
+        # Firstly, find the right-hand index: re-use variable "rbi"
+        rbi = torch.ones_like(aacum, dtype=torch.long)
+        rbi *= (self.ts_cnt - 1)
+        rbi = torch.minimum(torch.add(lbi, 1), rbi)
+
+        # make the result smooth
+        res = self.y_arr[lbi]
+        flag = torch.lt(lbi, rbi)
+        lb_arr = self.x_arr[lbi]
+        rb_arr = self.x_arr[rbi]
+        portion = (lb_arr[flag] - aacum[flag]) / (lb_arr[flag] - rb_arr[flag])
+        res[flag] = res[flag] * (1 - portion) + self.y_arr[rbi][flag] * portion
 
         # a2s = lambda x: ', '.join([f"{i:3d}" for i in x[:5]])  # arr to str
         # self.log_fn(f"lbi[:5]  : {a2s(lbi[:5])}")
         # self.log_fn(f"lbi[-5:] : {a2s(lbi[-5:])}")
-        return self.y_arr[lbi]
+        return res
 
     def to(self, device):
         self.x_arr = self.x_arr.to(device)
@@ -75,6 +87,18 @@ class VarSimulator2:
 
 def test():
     """ unit test"""
+    a2s = lambda x: ', '.join([f"{i:.4f}" for i in x])  # arr to str
+    var_arr = torch.tensor([5, 4, 3, 2, 1], dtype=torch.float64)
+    vs = VarSimulator2('cosine', var_arr)
+    in_arr = torch.tensor([0.999844, 0.898566, 0.647377, 0.340756, 0.094031])
+    out_arr = vs(in_arr)
+    print('input : ', a2s(in_arr))
+    print('output: ', a2s(out_arr))
+
+    in_arr = torch.tensor([0.9999, 0.94, 0.71, 0.49, 0.19, 0.06, 0.01, 0.001])
+    out_arr = vs(in_arr)
+    print('input : ', a2s(in_arr))
+    print('output: ', a2s(out_arr))
 
 if __name__ == '__main__':
     test()

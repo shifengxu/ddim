@@ -44,7 +44,15 @@ class ScheduleBase:
         """
         accumulate variance from x_1000 to x_1.
         """
-        numerator = ((1-aacum).sqrt() - (alpha-aacum).sqrt())**2
+        # delta is to avoid torch error:
+        #   RuntimeError: Function 'MulBackward0' returned nan values in its 0th output.
+        # Or:
+        #   the 2nd epoch will have output: tensor([nan, nan, ,,,])
+        # Of that error, a possible reason is: torch tensor 0.sqrt()
+        # So here, we make sure alpha > aacum.
+        delta = torch.zeros_like(aacum)
+        delta[0] = 1e-16
+        numerator = ((1-aacum).sqrt() - (alpha+delta-aacum).sqrt())**2
         numerator *= weight_arr
         sub_var = numerator / aacum
         final_var = torch.sum(sub_var)
@@ -183,26 +191,14 @@ class ScheduleBase:
 class Schedule1Model(nn.Module):
     def __init__(self, out_channels=1000):
         super().__init__()
-        # self.linear1 = torch.nn.Linear(1,  50, dtype=torch.float64)
-        # self.linear2 = torch.nn.Linear(50,  500, dtype=torch.float64)
-        # self.linear3 = torch.nn.Linear(500,  out_channels, dtype=torch.float64)
-        #
-        # # the max threshold of the alpha-accumulated
-        # self.linearMax = torch.nn.Sequential(
-        #     torch.nn.Linear(1, 100, dtype=torch.float64),
-        #     torch.nn.Linear(100, 1, dtype=torch.float64),
-        # )
-
         # The two-level linear is better than pure nn.Parameter().
         # Pure nn.Parameter() means such:
         #   self.aa_max = torch.nn.Parameter(torch.ones((1,), dtype=torch.float64), requires_grad=True)
+        self.out_channels = out_channels
         self.linear1 = torch.nn.Linear(1000,  2000, dtype=torch.float64)
         self.linear2 = torch.nn.Linear(2000,  2000, dtype=torch.float64)
         self.linear3 = torch.nn.Linear(2000,  out_channels, dtype=torch.float64)
 
-        # The two-level linear is better than pure nn.Parameters().
-        # Pure nn.Parameter() means such:
-        #   self.aa_max = torch.nn.Parameter(torch.ones((1,), dtype=torch.float64), requires_grad=True)
         self.linearMax = torch.nn.Sequential(
             torch.nn.Linear(1, 100, dtype=torch.float64),
             torch.nn.Linear(100, 1, dtype=torch.float64),
@@ -225,16 +221,6 @@ class Schedule1Model(nn.Module):
             self.linear3.weight.grad = torch.tanh(self.linear3.weight.grad)
 
     def forward(self, simple_mode=False):
-        # output1 = self.linear1(input_seed)
-        # # output1 = output1 * torch.sigmoid(output1)
-        # output2 = self.linear2(output1)
-        # # output2 = output2 * torch.sigmoid(output2)
-        # output3 = self.linear3(output2)
-        # output = torch.softmax(output3, dim=0)
-        #
-        # aa_max = self.linearMax(input_seed)
-        # aa_max = torch.sigmoid(aa_max)
-
         output = self.linear1(self.seed_k)
         output = self.linear2(output)
         output = self.linear3(output)
@@ -246,13 +232,7 @@ class Schedule1Model(nn.Module):
 
         aacum = torch.cumsum(output, dim=0)
         aacum = torch.flip(aacum, dims=(0,))
-        aa_max = (0.9 + 0.0999999999*aa_max)  # make sure aa_max is in (0.9, 1)
         aacum = aacum * aa_max
-        aa_prev = torch.cat([torch.ones(1).to(aa_max.device), aacum[:-1]], dim=0)
+        aa_prev = torch.cat([torch.ones(1).to(aacum.device), aacum[:-1]], dim=0)
         alpha = torch.div(aacum, aa_prev)
-
-        # make sure alpha > aacum.
-        # Or else, the 2nd epoch will have output: tensor([nan, nan, ,,,])
-        # When calculating the final variance, it will use: (alpha-aacum).sqrt()
-        alpha[0] += 1e-12
         return alpha, aacum
