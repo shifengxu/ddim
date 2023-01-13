@@ -201,6 +201,13 @@ class Diffusion(object):
             alphas_cumprod = alphas.cumprod(dim=0)
         return alphas, alphas_cumprod, betas
 
+    def ts_to_albar(self, ts):
+        """
+        Timestep to alpha_bar.
+        "alpha_bar" is just the alpha accumulation
+        """
+        return self.alphas_cumprod.index_select(0, ts.long())
+
     def get_schedule_from_file(self, f_path):
         if not os.path.exists(f_path):
             raise Exception(f"File not found: {f_path}")
