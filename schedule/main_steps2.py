@@ -66,7 +66,7 @@ def main():
     save_vs_plot(args, vs, var_arr)
     vs.to(args.device)
 
-    k = 0.00106932  # alpha_1 * alpha_2
+    k = 0.001  # alpha_1 * alpha_2
     x_arr = np.arange(0.0011, 1.0, 0.0001)
     loss_vivid_a1 = []
     loss_equal_a1 = []
@@ -74,13 +74,13 @@ def main():
     loss_equal_a2 = []
     cnt = len(x_arr)
     for idx, x in enumerate(x_arr):
-        # a1 = x      # alpha_1
-        # a2 = k / a1 # alpha_2
-        # alpha = torch.Tensor([a1, a2]).to(args.device)
-        # aacum = torch.Tensor([a1, k]).to(args.device)
-        # new_weight_arr = vs(aacum)
-        # loss = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
-        # loss_vivid_a1.append(loss.item())
+        a1 = x      # alpha_1
+        a2 = k / a1 # alpha_2
+        alpha = torch.Tensor([a1, a2]).to(args.device)
+        aacum = torch.Tensor([a1, k]).to(args.device)
+        new_weight_arr = vs(aacum)
+        loss = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
+        loss_vivid_a1.append(loss.item())
 
         # new_weight_arr = torch.ones_like(aacum, device=args.device)
         # loss = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
@@ -103,12 +103,13 @@ def main():
 
     # for i
     fig, axs = plt.subplots()
-    axs.plot(x_arr, loss_vivid_a1, label='vivid_loss_a1')
+    axs.plot(x_arr, loss_vivid_a1, label='final variance depending on a1')
     # axs.plot(x_arr, loss_equal_a1, label='equal_loss_a1')
-    axs.plot(x_arr, loss_vivid_a2, label='vivid_loss_a2')
+    axs.plot(x_arr, loss_vivid_a2, label='final variance depending on a2')
     # axs.plot(x_arr, loss_equal_a2, label='equal_loss_a2')
     msg = f"Only 2 steps. k={k:.6f}. x_arr length: {len(x_arr)}; range: {x_arr[0]} ~ {x_arr[-1]}"
-    axs.set_xlabel(msg)
+    axs.set_xlabel(f"Value of a1 or a2. range: {x_arr[0]:.4f} ~ {x_arr[-1]:.4f}")
+    plt.title(f"Sampling by 2 steps: a1 and a2.\nLimitation: a1*a2={k:.4f}")
     fig.legend()
     fig.set_size_inches(18, 8)
     f_path = os.path.join(args.output_dir, f"main_steps2.png")
