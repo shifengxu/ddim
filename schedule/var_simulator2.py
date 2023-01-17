@@ -59,6 +59,8 @@ class VarSimulator2:
             rbi[flag1] = mdi[flag1]
         # for
         # after iteration, lbi will be the target index
+        res = self.y_arr[lbi]
+
         # But the input aacum value may have difference with x_arr. So here
         # we handle the difference and make the result smooth
         # Firstly, find the right-hand index: re-use variable "rbi"
@@ -67,7 +69,6 @@ class VarSimulator2:
         rbi = torch.minimum(torch.add(lbi, 1), rbi)
 
         # make the result smooth
-        res = self.y_arr[lbi]
         flag = torch.lt(lbi, rbi)
         lb_arr = self.x_arr[lbi]
         rb_arr = self.x_arr[rbi]

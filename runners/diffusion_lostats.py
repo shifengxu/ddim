@@ -6,7 +6,7 @@ import torch.utils.data as data
 
 from torch.backends import cudnn
 from datasets import get_dataset, data_transform
-from functions.losses import noise_estimation_loss2, x0_estimation_loss2
+from functions.losses import x0_estimation_loss2
 from models.diffusion import Model
 from models.ema import EMAHelper
 from runners.diffusion import Diffusion
@@ -109,11 +109,16 @@ class DiffusionLostats(Diffusion):
 
         jump = self.args.timesteps
         h_cnt = 1000 // jump        # hit count
-        b_cnt = len(test_loader)   # batch count
+        b_cnt = len(test_loader)    # batch count
         hb_cnt = h_cnt * b_cnt      # hit * batch
         b_sz = self.args.batch_size or self.config.training.batch_size
-        loss_ttl_arr = [0.] * 1000
-        loss_cnt_arr = [0] * 1000
+        dmu_ttl_arr = [0.] * 1000  # mean
+        var_ttl_arr = [0.] * 1000  # variance
+        mse_ttl_arr = [0.] * 1000  # mse
+        dmu_avg_arr = [0.] * 1000
+        var_avg_arr = [0.] * 1000
+        mse_avg_arr = [0.] * 1000
+        cal_cnt_arr = [0] * 1000   # calculation count
         data_start = time.time()
         logging.info(f"h_cnt  : {h_cnt}")
         logging.info(f"jump   : {jump}")
@@ -130,29 +135,39 @@ class DiffusionLostats(Diffusion):
                     t *= ts
                     e = torch.randn_like(x)
                     if self.args.todo == 'lostats:x0':
-                        loss, _ = x0_estimation_loss2(model, x, t, e, self.alphas_cumprod)
+                        mse, _ = x0_estimation_loss2(model, x, t, e, self.alphas_cumprod)
                     else:
-                        loss, _ = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
-                    loss_ttl_arr[ts] += loss.item()
-                    loss_cnt_arr[ts] += 1
+                        at = self.alphas_cumprod.index_select(0, t).view(-1, 1, 1, 1)  # alpha_t
+                        xt = x * at.sqrt() + e * (1.0 - at).sqrt()
+                        output = model(xt, t.float())
+                        mse = (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
+                        var, mean = torch.var_mean(e - output)
+                        dmu_ttl_arr[ts] += mean.item()
+                        var_ttl_arr[ts] += var.item() * 3072
+                    mse_ttl_arr[ts] += mse.item()
+                    cal_cnt_arr[ts] += 1
 
                     ts_idx = ts // jump
                     if ts_idx % 10 == 0 or ts_idx == h_cnt - 1:
                         elp, eta = utils.get_time_ttl_and_eta(data_start, b_idx * h_cnt + ts_idx, hb_cnt)
-                        avg = loss_ttl_arr[ts] / loss_cnt_arr[ts]
-                        logging.info(f"B{b_idx:03d}/{b_cnt}.ts{ts:3d}"
-                                     f" loss:{loss.item():7.2f} avg:{avg:7.2f}; elp:{elp}, eta:{eta}")
+                        logging.info(f"B{b_idx:03d}/{b_cnt}.ts{ts:03d} mse:{mse:7.2f}; elp:{elp}, eta:{eta}")
                 # for ts
+                for i in range(len(var_avg_arr)):
+                    if cal_cnt_arr[i] > 0:
+                        var_avg_arr[i] = var_ttl_arr[i] / cal_cnt_arr[i]
+                        dmu_avg_arr[i] = dmu_ttl_arr[i] / cal_cnt_arr[i]
+                        mse_avg_arr[i] = mse_ttl_arr[i] / cal_cnt_arr[i]
+                msg = f"B{b_idx:03d}/{b_cnt}"
+                utils.save_list(var_avg_arr, 'var_avg', "./res_var_avg_arr.txt", msg, "{:7.2f}")
+                utils.save_list(dmu_avg_arr, 'dmu_avg', "./res_dmu_avg_arr.txt", msg, "{:8.5f}")
+                utils.save_list(mse_avg_arr, 'mse_avg', "./res_mse_avg_arr.txt", msg, "{:7.2f}")
+                utils.save_list(cal_cnt_arr, 'cal_cnt', "./res_cal_avg_arr.txt", msg, "{:4.0f}")
             # for loader
         # with
-        loss_avg_arr = [0.] * 1000
-        for i in range(len(loss_avg_arr)):
-            if loss_cnt_arr[i] > 0:
-                loss_avg_arr[i] = loss_ttl_arr[i] / loss_cnt_arr[i]
         # for
-        utils.output_list(loss_ttl_arr, 'loss_ttl')
-        utils.output_list(loss_cnt_arr, 'loss_cnt')
-        utils.output_list(loss_avg_arr, 'loss_avg')
+        # utils.output_list(var_ttl_arr, 'loss_ttl')
+        # utils.output_list(cal_cnt_arr, 'loss_cnt')
+        # utils.output_list(var_avg_arr, 'loss_avg')
     # run(self)
 
 # class

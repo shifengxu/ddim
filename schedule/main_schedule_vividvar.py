@@ -1,13 +1,24 @@
 """
-Find beta schedule by vivid variance. Also use final var as target
+Find beta schedule by vivid variance.
+Vivid variance is also final variance by default.
 """
 import argparse
 import sys
+import os
 import time
 import matplotlib.pyplot as plt
 from torch import optim
 from torch.backends import cudnn
 from torch.nn import DataParallel
+
+# add current dir and parent dir into python-path.
+# this it to facilitate the Linux start.exe file.
+cur_dir = os.path.dirname(__file__)
+prt_dir = os.path.dirname(cur_dir)  # parent dir
+if cur_dir not in sys.path:
+    sys.path.append(cur_dir)
+if prt_dir not in sys.path:
+    sys.path.append(prt_dir)
 
 from base import *
 from var_simulator2 import VarSimulator2
@@ -26,11 +37,11 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.000001)
     parser.add_argument('--output_dir', type=str, default='./output7_schedule1')
     parser.add_argument('--aa_low', type=float, default=0.0001, help="Alpha Accum lower bound")
-    parser.add_argument("--aacum0_lambda", type=float, default=100000000)
-    parser.add_argument("--weight_file", type=str, default='./output7_schedule1/weight_loss_smooth.txt')
+    parser.add_argument("--aa_low_lambda", type=float, default=10000000)
+    parser.add_argument("--weight_file", type=str, default='./output7_schedule1/weight_loss.txt')
     parser.add_argument("--load_ckpt_path", type=str, default='')
     parser.add_argument("--beta_schedule", type=str, default="cosine")
-    parser.add_argument("--vs_mode", type=str, default="vivid", help='var_simulator mode: vivid|static')
+    parser.add_argument("--vs_mode", type=str, default="static", help='var_simulator mode: vivid|static')
     args = parser.parse_args()
 
     if not args.weight_file:
@@ -111,7 +122,7 @@ def sample(args, model, e_idx, vs):
     new_weight_arr = vs(aacum)
     l_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
     aa_min = aacum[-1]
-    l_min = torch.square(aa_min - args.aa_low) * args.aacum0_lambda
+    l_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
     loss = torch.add(l_var, l_min)
     el_str = f"Sample by epoch:{e_idx:06d}; loss:{loss:05.2f} {l_var:05.2f} {l_min:05.2f}"
     status_save(args, alpha, aacum, new_weight_arr, el_str)
@@ -138,8 +149,8 @@ def main():
     log_fn(f"e_cnt   : {e_cnt}")
     log_fn(f"e_start : {e_start}")
     log_fn(f"aa_low  : {args.aa_low}")
+    log_fn(f"aa_low_lambda: {args.aa_low_lambda}")
     log_fn(f"torch.seed() : {torch.seed()}")
-    log_fn(f"aacum0_lambda: {args.aacum0_lambda}")
     model.train()
     aacum, alpha = None, None
     start_time = time.time()
@@ -150,15 +161,16 @@ def main():
         new_weight_arr = vs(aacum)
         loss_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
         aa_min = aacum[-1]
-        loss_min = torch.square(aa_min - args.aa_low) * args.aacum0_lambda
+        loss_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
         loss = torch.add(loss_var, loss_min)
         loss.backward()
         model.gradient_clip()
         optimizer.step()
         if e_idx % args.log_interval == 0 or e_idx == e_cnt - 1:
             elp, eta = utils.get_time_ttl_and_eta(start_time, e_idx - e_start, e_cnt - e_start)
-            log_fn(f"E{e_idx:05d}/{e_cnt} loss: {loss:.8f} {loss_var:.8f} {loss_min:.8f}."
-                   f" aa:{aacum[0]:.12f}~{aacum[-1]:.8f}. elp:{elp}, eta:{eta}")
+            log_fn(f"E{e_idx:05d}/{e_cnt} loss: {loss_var:.5f} {loss_min:.5f}."
+                   f" a:{alpha[0]:.8f}~{alpha[-1]:.8f};"
+                   f" aa:{aacum[0]:.8f}~{aacum[-1]:.5f}. elp:{elp}, eta:{eta}")
             if loss_track is None or loss_track > loss.item():
                 loss_track = loss.item()
                 el_str = f"Epoch:{e_idx:06d}; loss:{loss:05.2f} {loss_var:05.2f} {loss_min:05.2f}"
