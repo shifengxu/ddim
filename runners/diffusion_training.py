@@ -30,42 +30,69 @@ class DiffusionTraining(Diffusion):
         self.ema_rate = args.ema_rate or config.model.ema_rate
         self.ema_start_epoch = args.ema_start_epoch
 
-    def train(self):
+        # statistic related data
+        self.test_avg_arr = []  # test dataset loss avg array
+        self.test_ema_arr = []  # test dataset loss avg array on self.m_ema (EMA model)
+        self.ts_arr_arr = [[], [], []]  # array of array, for time-step array when testing
+
+        if args.fivar_coef:
+            # final variance coefficient
+            ac = self.alphas_cumprod
+            a = self.alphas
+            numerator = ((1-ac).sqrt() - (a-ac).sqrt()) ** 2
+            self.fivar_coef_list = numerator / ac
+            f_path = os.path.join(args.log_path, "fivar_coef_list.txt")
+            msg = f"beta_schedule: {args.beta_schedule}"
+            logging.info(f"Save file: {f_path}")
+            utils.save_list(self.fivar_coef_list, 'fc', f_path, msg, "{:10.6f}")
+            a2s = lambda x: ', '.join([f"{i:10.6f}" for i in x])
+            logging.info(f"  beta_schedule  : {args.beta_schedule}")
+            logging.info(f"  fivar_coef[:5] : {a2s(self.fivar_coef_list[:5])}")
+            logging.info(f"  fivar_coef[-5:]: {a2s(self.fivar_coef_list[-5:])}")
+            self.fivar_coef_list = self.fivar_coef_list.sqrt()
+            f_path = os.path.join(args.log_path, "fivar_coef_list_sqrt.txt")
+            utils.save_list(self.fivar_coef_list, 'fc', f_path, msg, "{:10.6f}")
+            logging.info(f"Save file: {f_path}")
+            logging.info(f"  fivar_coef[:5] : {a2s(self.fivar_coef_list[:5])}")
+            logging.info(f"  fivar_coef[-5:]: {a2s(self.fivar_coef_list[-5:])}")
+
+    def get_data_loaders(self):
         args, config = self.args, self.config
-        dataset, test_dataset = get_dataset(args, config)
-        logging.info(f"train dataset:")
-        logging.info(f"  root : {dataset.root}")
-        logging.info(f"  split: {dataset.split}") if hasattr(dataset, 'split') else None
-        logging.info(f"  len  : {len(dataset)}")
-        logging.info(f"test dataset:")
-        logging.info(f"  root : {test_dataset.root}")
-        logging.info(f"  len  : {len(test_dataset)}")
         batch_size = args.batch_size or config.training.batch_size
+        dataset, test_dataset = get_dataset(args, config)
         train_loader = data.DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=True,
             num_workers=config.data.num_workers,
         )
-        logging.info(f"train_data_loader:")
+        logging.info(f"train dataset and data loader:")
+        logging.info(f"  root       : {dataset.root}")
+        logging.info(f"  split      : {dataset.split}") if hasattr(dataset, 'split') else None
+        logging.info(f"  len        : {len(dataset)}")
         logging.info(f"  batch_cnt  : {len(train_loader)}")
         logging.info(f"  batch_size : {batch_size}")
         logging.info(f"  shuffle    : True")
         logging.info(f"  num_workers: {config.data.num_workers}")
-        test_per_epoch = args.test_per_epoch
+
         test_loader = data.DataLoader(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=config.data.num_workers,
         )
-        logging.info(f"test_data_loader:")
-        logging.info(f"  test_per_epoch: {test_per_epoch}")
+        logging.info(f"test dataset and loader:")
+        logging.info(f"  root          : {test_dataset.root}")
+        logging.info(f"  len           : {len(test_dataset)}")
         logging.info(f"  test_data_dir : {args.test_data_dir}")
         logging.info(f"  batch_cnt     : {len(test_loader)}")
         logging.info(f"  batch_size    : {batch_size}")
         logging.info(f"  shuffle       : False")
         logging.info(f"  num_workers   : {config.data.num_workers}")
+        return train_loader, test_loader
+
+    def init_models(self):
+        args, config = self.args, self.config
         in_channels = args.model_in_channels
         out_channels = args.model_in_channels
         resolution = args.data_resolution
@@ -115,19 +142,23 @@ class DiffusionTraining(Diffusion):
         self.model = torch.nn.DataParallel(self.model, device_ids=args.gpu_ids)
         self.m_ema = torch.nn.DataParallel(self.m_ema, device_ids=args.gpu_ids)
         cudnn.benchmark = True
+        return e_cnt, start_epoch
 
-        b_cnt = len(train_loader)
+    def train(self):
+        args, config = self.args, self.config
+        train_loader, test_loader = self.get_data_loaders() # data loaders
+        e_cnt, start_epoch = self.init_models()             # models, optimizer and others
+        log_interval = args.log_interval
+        test_per_epoch = args.test_per_epoch
+        b_cnt = len(train_loader)               # batch count
         eb_cnt = (e_cnt - start_epoch) * b_cnt  # epoch * batch
         loss_avg_arr = []
-        test_avg_arr = []  # test dataset loss avg array
-        test_ema_arr = []  # test dataset loss avg array on self.m_ema (EMA model)
         data_start = time.time()
         self.model.train()
-        log_interval = 1 if model_name == 'ModelStack' else 10
-        ts_arr_arr = [[], [], []]  # array of array, for time-step array when testing
-        logging.info(f"log_interval: {log_interval}")
-        logging.info(f"start_epoch : {start_epoch}")
-        logging.info(f"epoch_cnt   : {e_cnt}")
+        logging.info(f"log_interval  : {log_interval}")
+        logging.info(f"start_epoch   : {start_epoch}")
+        logging.info(f"epoch_cnt     : {e_cnt}")
+        logging.info(f"test_per_epoch: {test_per_epoch}")
         for epoch in range(start_epoch, e_cnt):
             lr = self.scheduler.get_last_lr()[0]
             msg = f"lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}];"
@@ -136,14 +167,10 @@ class DiffusionTraining(Diffusion):
             if self.ema_flag and self.ema_start_epoch == epoch:
                 logging.info(f"EMA register...")
                 self.ema_helper.register(self.model)
-            loss_ttl = 0.
-            loss_cnt = 0
-            ema_cnt = 0
+            loss_ttl, loss_cnt, ema_cnt = 0., 0, 0
             for i, (x, y) in enumerate(train_loader):
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
-                if i % log_interval == 0 or i == b_cnt - 1:
-                    var0, mean0 = torch.var_mean(x)
                 e = torch.randn_like(x)
 
                 # antithetic sampling
@@ -154,11 +181,7 @@ class DiffusionTraining(Diffusion):
 
                 if i % log_interval == 0 or i == b_cnt - 1:
                     elp, eta = utils.get_time_ttl_and_eta(data_start, (epoch-start_epoch) * b_cnt + i, eb_cnt)
-                    var, mean = torch.var_mean(xt)
-                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():8.4f};"
-                                 f" x0:{mean0:7.4f} {var0:6.4f}; xt:{mean:7.4f} {var:6.4f};"
-                                 f" elp:{elp}, eta:{eta}")
-
+                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():8.4f}; elp:{elp}, eta:{eta}")
             # for loader
             loss_avg = loss_ttl / loss_cnt
             logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f} . ema_cnt:{ema_cnt}")
@@ -167,24 +190,27 @@ class DiffusionTraining(Diffusion):
             if epoch % 100 == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
             if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
-                ts_msg = f"ts_arr_arr[{len(ts_arr_arr)}, {len(ts_arr_arr[0])}]"
-                logging.info(f"E{epoch}. calculate loss on test dataset...{ts_msg}")
-                self.model.eval()
-                test_loss_avg = self.get_avg_loss(self.model, test_loader, ts_arr_arr)
-                self.model.train()
-                logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:8.4f}")
-                test_avg_arr.append(test_loss_avg)
-                if self.ema_flag and epoch >= self.ema_start_epoch:
-                    self.ema_helper.ema(self.m_ema)
-                    test_ema_avg = self.get_avg_loss(self.m_ema, test_loader, ts_arr_arr)
-                    test_ema_arr.append(test_ema_avg)
-                    logging.info(f"E{epoch}. test_ema_avg :{test_ema_avg:8.4f}")
+                self.test_and_save_result(epoch, test_loader)
         # for epoch
         utils.output_list(loss_avg_arr, 'loss_avg')
-        utils.output_list(test_avg_arr, 'test_avg')
-        utils.output_list(test_ema_arr, 'test_ema')
+        utils.output_list(self.test_avg_arr, 'test_avg')
+        utils.output_list(self.test_ema_arr, 'test_ema')
 
     # train(self)
+
+    def test_and_save_result(self, epoch, test_loader):
+        ts_msg = f"ts_arr_arr[{len(self.ts_arr_arr)}, {len(self.ts_arr_arr[0])}]"
+        logging.info(f"E{epoch}. calculate loss on test dataset...{ts_msg}")
+        self.model.eval()
+        test_loss_avg = self.get_avg_loss(self.model, test_loader, self.ts_arr_arr)
+        self.model.train()
+        logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:8.4f}")
+        self.test_avg_arr.append(test_loss_avg)
+        if self.ema_flag and epoch >= self.ema_start_epoch:
+            self.ema_helper.ema(self.m_ema)
+            test_ema_avg = self.get_avg_loss(self.m_ema, test_loader, self.ts_arr_arr)
+            self.test_ema_arr.append(test_ema_avg)
+            logging.info(f"E{epoch}. test_ema_avg :{test_ema_avg:8.4f}")
 
     def get_avg_loss(self, model, test_loader, ts_arr_arr):
         """
@@ -237,19 +263,30 @@ class DiffusionTraining(Diffusion):
             logging.info(f"train_model() timestep: torch.randint(low={self.ts_low}, "
                          f"high={self.ts_high}, size=({b_sz},), device={self.device})")
         t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
-        loss, xt = noise_estimation_loss2(self.model, x, t, epsilon, self.alphas_cumprod)
+        if self.args.fivar_coef:
+            loss, xt = self.fivar_coef_loss(x, t, epsilon)
+        else:
+            loss, xt = noise_estimation_loss2(self.model, x, t, epsilon, self.alphas_cumprod)
         self.optimizer.zero_grad()
         loss.backward()
-        try:
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.optim.grad_clip)
-        except Exception:
-            pass
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.optim.grad_clip)
         self.optimizer.step()
 
         ema_update_flag = 0
         if self.ema_flag and epoch >= self.ema_start_epoch:
             ema_update_flag = self.ema_helper.update(self.model)
         return loss, xt, ema_update_flag
+
+    def fivar_coef_loss(self, x, t: torch.Tensor, epsilon):
+        a_t = self.alphas_cumprod.index_select(0, t).view(-1, 1, 1, 1)  # alpha_t
+        x_t = x * a_t.sqrt() + epsilon * (1.0 - a_t).sqrt()             # x_t
+        output = self.model(x_t, t.float())
+        mse = (epsilon - output).square().sum(dim=(1, 2, 3))    # vector with size batch-size
+        # todo: apply final variance coefficient
+        coef_list = self.fivar_coef_list.index_select(0, t.long())
+        mse *= coef_list
+        mse = mse.mean(dim=0)
+        return mse, x_t
 
     def load_model(self, states):
         if isinstance(states, dict):

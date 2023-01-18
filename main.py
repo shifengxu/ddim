@@ -8,7 +8,9 @@ import os
 import torch
 import numpy as np
 import torch.utils.tensorboard as tb
+import torch.backends.cudnn as cudnn
 
+from runners.diffusion_dpm_solver import DiffusionDpmSolver
 from runners.diffusion_lostats import DiffusionLostats
 from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_sampling0 import DiffusionSampling0
@@ -38,7 +40,9 @@ def parse_args_and_config():
     parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
     parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
-    parser.add_argument("--n_epochs", type=int, default=0, help="0 mean epoch number from config file")
+    parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")
+    parser.add_argument("--log_interval", type=int, default=10)
+    parser.add_argument("--fivar_coef", type=str2bool, default=False, help="final variance coefficient")
     parser.add_argument("--batch_size", type=int, default=250, help="0 mean to use size from config file")
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
     parser.add_argument("--doc", type=str, default='doc',
@@ -52,14 +56,14 @@ def parse_args_and_config():
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
-    parser.add_argument("--todo", type=str, default='lsample', help="train|sample|psample|lsample")
+    parser.add_argument("--todo", type=str, default='dpmSolver', help="train|sample|psample|lsample")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
     parser.add_argument("--sample_ckpt_path_x0", type=str, default='./output3_sampleByPhase/ckpt_E1000_x0.pth')
     parser.add_argument("--sample_x0_ts_cnt", type=int, default=500)
     parser.add_argument("--sample_ckpt_dir", type=str, default='./exp/model_S4E1000TSxxx')
-    parser.add_argument("--sample_batch_size", type=int, default='500', help="0 mean from config file")
+    parser.add_argument("--sample_batch_size", type=int, default=1000, help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
     parser.add_argument('--psample_ts_list', nargs='+', type=int, help='0 means x0',
                         default=[50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 0, 1000])
@@ -77,7 +81,7 @@ def parse_args_and_config():
     parser.add_argument("--skip_type", type=str, default="uniform",
                         help="skip according to (uniform or quadratic)")
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
-    parser.add_argument("--beta_schedule", type=str, default="cosine")
+    parser.add_argument("--beta_schedule", type=str, default="linear")
     parser.add_argument("--eta", type=float, default=0.0,
                         help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")
@@ -160,7 +164,7 @@ def parse_args_and_config():
         torch.cuda.manual_seed_all(seed)
     logging.info(f"final seed: torch.seed(): {torch.seed()}")
 
-    torch.backends.cudnn.benchmark = True
+    cudnn.benchmark = True
 
     return args, new_config
 
@@ -254,9 +258,13 @@ def main():
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionSamplingByPhase(args, config, device=config.device)
             runner.sample()
+        elif args.todo == 'dpmSolver':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionDpmSolver(args, config, device=config.device)
+            runner.sample()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
-    except Exception:
+    except RuntimeError:
         logging.error(traceback.format_exc())
 
     return 0
