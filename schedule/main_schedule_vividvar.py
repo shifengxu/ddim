@@ -40,8 +40,9 @@ def parse_args():
     parser.add_argument("--aa_low_lambda", type=float, default=10000000)
     parser.add_argument("--weight_file", type=str, default='./output7_schedule1/weight_loss.txt')
     parser.add_argument("--load_ckpt_path", type=str, default='')
-    parser.add_argument("--beta_schedule", type=str, default="cosine")
-    parser.add_argument("--vs_mode", type=str, default="static", help='var_simulator mode: vivid|static')
+    parser.add_argument("--beta_schedule", type=str, default="linear")
+    parser.add_argument("--beta_count", type=int, default=20)
+    parser.add_argument("--vs_mode", type=str, default="vivid", help='var_simulator mode: vivid|static')
     args = parser.parse_args()
 
     if not args.weight_file:
@@ -65,6 +66,7 @@ def model_save(args, model, e_idx):
         real_model = real_model.module
     states = {
         'model': real_model.state_dict(),
+        'out_channels': real_model.out_channels,
         'cur_epoch': e_idx
     }
     if e_idx % 1000 == 0:
@@ -78,13 +80,19 @@ def model_save(args, model, e_idx):
 def model_load(ckpt_path, model):
     log_fn(f"load ckpt: {ckpt_path}")
     states = torch.load(ckpt_path)
+    out_ch = states['out_channels']
     log_fn(f"  model.load_state_dict(states['model'])")
-    log_fn(f"  old epoch: {states['cur_epoch']}")
+    log_fn(f"  old epoch    : {states['cur_epoch']}")
+    log_fn(f"  out_channels : {out_ch}")
+    if out_ch != model.out_channels:
+        msg = f"model out_channels mismatch. loaded: {out_ch}; defined: {model.out_channels}."
+        msg += " The defined value should be from args parameters."
+        raise Exception(msg)
     model.load_state_dict(states['model'])
     return states['cur_epoch']
 
 def model_generate(args):
-    model = Schedule1Model(out_channels=1000)
+    model = ScheduleParamAlphaModel(out_channels=args.beta_count)
     e_start = 0  # epoch start
     if args.load_ckpt_path:
         e_start = model_load(args.load_ckpt_path, model)
@@ -119,14 +127,34 @@ def sample(args, model, e_idx, vs):
     model.eval()
     with torch.no_grad():
         alpha, aacum = model()
-    new_weight_arr = vs(aacum)
+    new_weight_arr, idx_arr = vs(aacum, include_index=True)
     l_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
     aa_min = aacum[-1]
     l_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
     loss = torch.add(l_var, l_min)
     el_str = f"Sample by epoch:{e_idx:06d}; loss:{loss:05.2f} {l_var:05.2f} {l_min:05.2f}"
-    status_save(args, alpha, aacum, new_weight_arr, el_str)
+    status_save(args, alpha, aacum, idx_arr, new_weight_arr, el_str)
     log_fn(f" sampling done.")
+
+def indexing(args, vs):
+    log_fn(f"indexing() =======================")
+    aacum = [# 0.000040,
+             0.000108, 0.000275, 0.000664, 0.001527,
+             0.003338, 0.006937, 0.013707, 0.025754, 0.046017,
+             0.078191, 0.126356, 0.194200, 0.283887, 0.394732,
+             0.522087, 0.656885, 0.786252, 0.895329, 0.970005, 0.999900]
+    aacum.reverse()
+    aacum = torch.tensor(aacum, device=args.device)
+    aa_prev = torch.cat([torch.ones(1).to(args.device), aacum[:-1]], dim=0)
+    alpha = torch.div(aacum, aa_prev)
+    new_weight_arr, idx_arr = vs(aacum, include_index=True)
+    loss_var, coef, numerator, sub_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr, True)
+    aa_min = aacum[-1]
+    l_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
+    loss = torch.add(loss_var, l_min)
+    m_arr2 = [f"indexing. loss:{loss:05.2f} = {loss_var:05.2f} + {l_min:05.2f}"]
+    detail_save(args, alpha, aacum, idx_arr, new_weight_arr, loss_var, coef, numerator, sub_var, m_arr2)
+    log_fn(f" indexing done.")
 
 def main():
     args = parse_args()
@@ -135,22 +163,28 @@ def main():
     log_fn(f"args: {args}")
     var_arr = ScheduleBase.load_floats(args.weight_file)
     vs = VarSimulator2(args.beta_schedule, var_arr, mode=args.vs_mode)
-    save_vs_plot(args, vs, var_arr)
+    # save_vs_plot(args, vs, var_arr)
     vs.to(args.device)
 
     model, e_start = model_generate(args)
     if args.todo == 'sample':
         return sample(args, model, e_start, vs)
+    if args.todo == 'indexing':
+        return indexing(args, vs)
 
     lr = args.lr
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
     e_cnt = args.n_epochs
-    log_fn(f"lr      : {lr}")
-    log_fn(f"e_cnt   : {e_cnt}")
-    log_fn(f"e_start : {e_start}")
-    log_fn(f"aa_low  : {args.aa_low}")
-    log_fn(f"aa_low_lambda: {args.aa_low_lambda}")
-    log_fn(f"torch.seed() : {torch.seed()}")
+    m_arr = [f"lr      : {lr}",
+             f"e_cnt   : {e_cnt}",
+             f"e_start : {e_start}",
+             f"aa_low  : {args.aa_low}",
+             f"aa_low_lambda: {args.aa_low_lambda}",
+             f"beta_schedule: {args.beta_schedule}",
+             f"beta_count   : {args.beta_count}",
+             f"torch.seed() : {torch.seed()}"
+    ]  # message array
+    [log_fn(m) for m in m_arr]
     model.train()
     aacum, alpha = None, None
     start_time = time.time()
@@ -158,8 +192,8 @@ def main():
     for e_idx in range(e_start, e_cnt):
         optimizer.zero_grad()
         alpha, aacum = model()
-        new_weight_arr = vs(aacum)
-        loss_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr)
+        new_weight_arr, idx_arr = vs(aacum, include_index=True)
+        loss_var, coef, numerator, sub_var = ScheduleBase.accumulate_variance(alpha, aacum, new_weight_arr, True)
         aa_min = aacum[-1]
         loss_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
         loss = torch.add(loss_var, loss_min)
@@ -173,8 +207,9 @@ def main():
                    f" aa:{aacum[0]:.8f}~{aacum[-1]:.5f}. elp:{elp}, eta:{eta}")
             if loss_track is None or loss_track > loss.item():
                 loss_track = loss.item()
-                el_str = f"Epoch:{e_idx:06d}; loss:{loss:05.2f} {loss_var:05.2f} {loss_min:05.2f}"
-                status_save(args, alpha, aacum, new_weight_arr, el_str)
+                m_arr2 = m_arr + [f"Epoch:{e_idx:06d}; loss:{loss:05.2f} = {loss_var:05.2f} + {loss_min:05.2f}"]
+                # status_save(args, alpha, aacum, idx_arr, new_weight_arr, m_arr2)
+                detail_save(args, alpha, aacum, idx_arr, new_weight_arr, loss_var, coef, numerator, sub_var, m_arr2)
 
         if e_idx > 0 and e_idx % 50000 == 0 or e_idx == e_cnt - 1:
             model_save(args, model, e_idx)
@@ -183,7 +218,7 @@ def main():
     utils.output_list(alpha, 'alpha')
     return 0
 
-def status_save(args, alpha, aacum, weight_arr, el_str):
+def status_save(args, alpha, aacum, index, weight_arr, el_str):
     alpha[0] += 1e-12
     coef = ((1 - aacum).sqrt() - (alpha - aacum).sqrt()) / alpha.sqrt()
     fig, axs = plt.subplots()
@@ -195,9 +230,29 @@ def status_save(args, alpha, aacum, weight_arr, el_str):
     o_dir = args.output_dir
     fig.savefig(os.path.join(o_dir, f"et_vividvar.png"))
     plt.close()
-    utils.save_list(aacum, f"aacum", os.path.join(o_dir, f"et_aacum.txt"), msg=el_str)
-    utils.save_list(alpha, f"alpha", os.path.join(o_dir, f"et_alpha.txt"), msg=el_str)
-    utils.save_list(std_d, f"std_d", os.path.join(o_dir, f"et_std_d.txt"), msg=el_str)
+    bc = f"_{args.beta_count:04d}"
+    combo = []
+    for i in range(len(aacum)):
+        combo.append("{:8.6f}: {:3d}".format(aacum[i], index[i]))
+    m_arr = list(el_str) if el_str is list else [el_str]
+    m_arr.append('')
+    m_arr.append('aacum : timestep')
+    utils.save_list(combo, '', os.path.join(o_dir, f"et_aacum{bc}.txt"), msg=m_arr, fmt="{}")
+    utils.save_list(alpha, '', os.path.join(o_dir, f"et_alpha{bc}.txt"), msg=el_str)
+    utils.save_list(std_d, '', os.path.join(o_dir, f"et_std_d{bc}.txt"), msg=el_str)
+
+def detail_save(args, alpha, aacum, idx_arr, new_weight_arr, loss_var, coef, numerator, sub_var, m_arr):
+    o_dir = args.output_dir
+    bc = f"_{args.beta_count:04d}.txt"
+    combo = []
+    for i in range(len(aacum)):
+        s = f"{aacum[i]:8.6f}: {idx_arr[i]:3d}: {alpha[i]:8.6f};" \
+            f" {coef[i]:8.6f}*{new_weight_arr[i]:10.6f}={numerator[i]:9.6f};" \
+            f" {numerator[i]:9.6f}/{aacum[i]:8.6f}={sub_var[i]:10.6f}"
+        combo.append(s)
+    m_arr.append(f"loss_var: {loss_var:10.6f}")
+    m_arr.append('aacum : ts : alpha   ; coef    * weight   =numerator; numerator/aacum   =sub_var')
+    utils.save_list(combo, '', os.path.join(o_dir, f"et_detail{bc}"), msg=m_arr, fmt="{}")
 
 if __name__ == "__main__":
     sys.exit(main())

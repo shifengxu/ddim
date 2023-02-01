@@ -7,7 +7,6 @@ from torch import nn, Tensor
 
 import utils
 
-
 class ScheduleBase:
     @staticmethod
     def load_floats(f_path, log_fn=utils.log_info):
@@ -40,7 +39,7 @@ class ScheduleBase:
         return weights
 
     @staticmethod
-    def accumulate_variance(alpha: Tensor, aacum: Tensor, weight_arr: Tensor):
+    def accumulate_variance(alpha: Tensor, aacum: Tensor, weight_arr: Tensor, details=False):
         """
         accumulate variance from x_1000 to x_1.
         """
@@ -52,10 +51,13 @@ class ScheduleBase:
         # So here, we make sure alpha > aacum.
         delta = torch.zeros_like(aacum)
         delta[0] = 1e-16
-        numerator = ((1-aacum).sqrt() - (alpha+delta-aacum).sqrt())**2
-        numerator *= weight_arr
+        coef = ((1-aacum).sqrt() - (alpha+delta-aacum).sqrt())**2
+        numerator = coef * weight_arr
         sub_var = numerator / aacum
+        sub_var *= alpha
         final_var = torch.sum(sub_var)
+        if details:
+            return final_var, coef, numerator, sub_var
         return final_var
 
     @staticmethod
@@ -235,4 +237,109 @@ class Schedule1Model(nn.Module):
         aacum = aacum * aa_max
         aa_prev = torch.cat([torch.ones(1).to(aacum.device), aacum[:-1]], dim=0)
         alpha = torch.div(aacum, aa_prev)
+
+        # alpha = [0.370370, 0.392727, 0.414157, 0.434840, 0.457460,
+        #          0.481188, 0.506092, 0.532228, 0.559663, 0.588520,
+        #          0.618815, 0.650649, 0.684075, 0.719189, 0.756066,
+        #          0.794792, 0.835464, 0.878171, 0.923015, 0.970102, ]
+        # aacum = [0.000040, 0.000108, 0.000275, 0.000664, 0.001527,
+        #          0.003338, 0.006937, 0.013707, 0.025754, 0.046017,
+        #          0.078191, 0.126356, 0.194200, 0.283887, 0.394732,
+        #          0.522087, 0.656885, 0.786252, 0.895329, 0.970005, ]
+        # alpha, aacum = torch.tensor(alpha), torch.tensor(aacum)
+        # alpha, aacum = alpha.to(aa_max.device), aacum.to(aa_max.device)
+
+        return alpha, aacum
+
+
+class ScheduleAlphaModel(nn.Module):
+    """Predict alpha"""
+    def __init__(self, out_channels=1000, log_fn=utils.log_info):
+        super().__init__()
+        self.out_channels = out_channels
+        self.linear1 = torch.nn.Linear(1000,  2000, dtype=torch.float64)
+        self.linear2 = torch.nn.Linear(2000,  2000, dtype=torch.float64)
+        self.linear3 = torch.nn.Linear(2000,  out_channels, dtype=torch.float64)
+
+        # the seed. we choose value 0.5. And it is better than value 1.0
+        ones_k = torch.mul(torch.ones((1000,), dtype=torch.float64), 0.5)
+        self.seed_k = torch.nn.Parameter(ones_k, requires_grad=False)
+        log_fn(f"ScheduleAlphaModel()")
+        log_fn(f"  out_channels: {self.out_channels}")
+
+    def gradient_clip(self):
+        if self.linear1.weight.grad is not None:
+            self.linear1.weight.grad = torch.tanh(self.linear1.weight.grad)
+            self.linear1.weight.grad = torch.tanh(self.linear1.weight.grad)
+        if self.linear2.weight.grad is not None:
+            self.linear2.weight.grad = torch.tanh(self.linear2.weight.grad)
+            self.linear2.weight.grad = torch.tanh(self.linear2.weight.grad)
+        if self.linear3.weight.grad is not None:
+            self.linear3.weight.grad = torch.tanh(self.linear3.weight.grad)
+            self.linear3.weight.grad = torch.tanh(self.linear3.weight.grad)
+
+    def forward(self):
+        output = self.linear1(self.seed_k)
+        output = self.linear2(output)
+        output = self.linear3(output)
+        alpha = torch.sigmoid(output)
+        aacum = torch.cumprod(alpha, dim=0)
+
+        return alpha, aacum
+
+
+class ScheduleParamAlphaModel(nn.Module):
+    """Predict alpha, but with predefined alpha base"""
+    def __init__(self, out_channels=1000, log_fn=utils.log_info):
+        super().__init__()
+        self.out_channels = out_channels
+        self.log_fn = log_fn
+        # hard code the alpha base, which is from DPM-Solver
+        # ab = [0.370370, 0.392727, 0.414157, 0.434840, 0.457460,   # by original TS: 49, 99, 149,,,
+        #       0.481188, 0.506092, 0.532228, 0.559663, 0.588520,
+        #       0.618815, 0.650649, 0.684075, 0.719189, 0.756066,
+        #       0.794792, 0.835464, 0.878171, 0.923015, 0.970102, ]
+        # ab.reverse()
+
+        # by geometric with ratio 1.07
+        ab = [0.991657, 0.978209, 0.961940, 0.942770, 0.920657,
+              0.895610, 0.867686, 0.828529, 0.797675, 0.750600,
+              0.704142, 0.654832, 0.597398, 0.537781, 0.477242,
+              0.417018, 0.353107, 0.292615, 0.236593, 0.177778, ]
+
+        ab = torch.tensor(ab)
+        self.alpha_base = torch.nn.Parameter(ab, requires_grad=False)
+        self.linear1 = torch.nn.Linear(1000,  2000, dtype=torch.float64)
+        self.linear2 = torch.nn.Linear(2000,  2000, dtype=torch.float64)
+        self.linear3 = torch.nn.Linear(2000,  out_channels, dtype=torch.float64)
+
+        # the seed. we choose value 0.5. And it is better than value 1.0
+        ones_k = torch.mul(torch.ones((1000,), dtype=torch.float64), 0.5)
+        self.seed_k = torch.nn.Parameter(ones_k, requires_grad=False)
+        log_fn(f"{type(self).__name__}()")
+        log_fn(f"  out_channels: {self.out_channels}")
+        f2s = lambda arr: ' '.join([f"{f:.6f}" for f in arr])
+        log_fn(f"  alpha_base     : {len(self.alpha_base)}")
+        log_fn(f"  alpha_base[:5] : [{f2s(self.alpha_base[:5])}]")
+        log_fn(f"  alpha_base[-5:]: [{f2s(self.alpha_base[-5:])}]")
+
+    def gradient_clip(self):
+        if self.linear1.weight.grad is not None:
+            self.linear1.weight.grad = torch.tanh(self.linear1.weight.grad)
+            self.linear1.weight.grad = torch.tanh(self.linear1.weight.grad)
+        if self.linear2.weight.grad is not None:
+            self.linear2.weight.grad = torch.tanh(self.linear2.weight.grad)
+            self.linear2.weight.grad = torch.tanh(self.linear2.weight.grad)
+        if self.linear3.weight.grad is not None:
+            self.linear3.weight.grad = torch.tanh(self.linear3.weight.grad)
+            self.linear3.weight.grad = torch.tanh(self.linear3.weight.grad)
+
+    def forward(self):
+        output = self.linear1(self.seed_k)
+        output = self.linear2(output)
+        output = self.linear3(output)
+        output = torch.tanh(output)
+        alpha = torch.add(self.alpha_base, output * 0.01)
+        aacum = torch.cumprod(alpha, dim=0)
+
         return alpha, aacum

@@ -14,7 +14,7 @@ class VarSimulator2:
     def __init__(self, beta_schedule, y_arr, log_fn=log_info, mode='vivid'):
         self.ts_cnt = len(y_arr)
         self.x_arr = ScheduleBase.get_alpha_cumprod(beta_schedule, self.ts_cnt)
-        self.y_arr = y_arr
+        self.y_arr = y_arr  # input x, output y.
         self.log_fn = log_fn
         self.mode = mode
         log_fn(f"VarSimulator2()")
@@ -35,15 +35,16 @@ class VarSimulator2:
         res = ', '.join(s_arr)
         return f"[{res}]"
 
-    def __call__(self, aacum: Tensor):
+    def __call__(self, aacum: Tensor, include_index=False):
         if self.mode == 'static':
+            if include_index: raise Exception(f"Not implemented: include_index with {self.mode}")
             return self.y_arr
         elif self.mode == 'vivid' or self.mode == 'dynamic':
-            return self._binary_search(aacum)
+            return self._binary_search(aacum, include_index)
         else:
             raise Exception(f"Unknown mode: {self.mode}")
 
-    def _binary_search(self, aacum: Tensor):
+    def _binary_search(self, aacum: Tensor, include_index=False):
         """Use binary search"""
         # define left bound index and right bound index
         lbi = torch.zeros_like(aacum, dtype=torch.long)
@@ -78,6 +79,8 @@ class VarSimulator2:
         # a2s = lambda x: ', '.join([f"{i:3d}" for i in x[:5]])  # arr to str
         # self.log_fn(f"lbi[:5]  : {a2s(lbi[:5])}")
         # self.log_fn(f"lbi[-5:] : {a2s(lbi[-5:])}")
+        if include_index:
+            return res, lbi
         return res
 
     def to(self, device):
