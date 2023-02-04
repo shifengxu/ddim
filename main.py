@@ -65,6 +65,9 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_dir", type=str, default='./exp/model_S4E1000TSxxx')
     parser.add_argument("--sample_batch_size", type=int, default=1000, help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
+    # parser.add_argument("--predefined_aap_file", type=str, default="./output7_vividvar/res_aacum_0020.txt")
+    # parser.add_argument("--predefined_aap_file", type=str, default="geometric_ratio:1.07")
+    parser.add_argument("--predefined_aap_file", type=str, default="")
     parser.add_argument('--psample_ts_list', nargs='+', type=int, help='0 means x0',
                         default=[50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 0, 1000])
     parser.add_argument('--psample_dir', type=str, default="./exp/partialSample")
@@ -262,6 +265,18 @@ def main():
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionDpmSolver(args, config, device=config.device)
             runner.sample()
+        elif args.todo == 'dpmSolver.ratios':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionDpmSolver(args, config, device=config.device)
+            runner.sample_ratios()
+        elif args.todo == 'dpmSolver.all':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionDpmSolver(args, config, device=config.device)
+            runner.sample_all()
+        elif args.todo == 'dpmSolver.alpha_bar_all':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionDpmSolver(args, config, device=config.device)
+            runner.alpha_bar_all()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     except RuntimeError:
