@@ -237,7 +237,10 @@ class DiffusionTraining(Diffusion):
                     else:
                         t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
                         ts_arr.append(t)
-                    loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
+                    if self.args.fivar_coef:
+                        loss, xt = self.fivar_coef_loss(x, t, e)
+                    else:
+                        loss, xt = noise_estimation_loss2(self.model, x, t, e, self.alphas_cumprod)
                     loss_ttl += loss.item()
                     loss_cnt += 1
                 # for loader
@@ -282,7 +285,7 @@ class DiffusionTraining(Diffusion):
         x_t = x * a_t.sqrt() + epsilon * (1.0 - a_t).sqrt()             # x_t
         output = self.model(x_t, t.float())
         mse = (epsilon - output).square().sum(dim=(1, 2, 3))    # vector with size batch-size
-        # todo: apply final variance coefficient
+        # apply final variance coefficient
         coef_list = self.fivar_coef_list.index_select(0, t.long())
         mse *= coef_list
         mse = mse.mean(dim=0)

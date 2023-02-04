@@ -92,7 +92,7 @@ def model_load(ckpt_path, model):
     return states['cur_epoch']
 
 def model_generate(args):
-    model = ScheduleParamAlphaModel(out_channels=args.beta_count)
+    model = ScheduleAlphaModel()
     e_start = 0  # epoch start
     if args.load_ckpt_path:
         e_start = model_load(args.load_ckpt_path, model)
@@ -182,8 +182,7 @@ def main():
              f"aa_low_lambda: {args.aa_low_lambda}",
              f"beta_schedule: {args.beta_schedule}",
              f"beta_count   : {args.beta_count}",
-             f"torch.seed() : {torch.seed()}"
-    ]  # message array
+             f"torch.seed() : {torch.seed()}"]  # message array
     [log_fn(m) for m in m_arr]
     model.train()
     aacum, alpha = None, None
