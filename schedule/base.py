@@ -290,38 +290,60 @@ class ScheduleAlphaModel(nn.Module):
 
 class ScheduleParamAlphaModel(nn.Module):
     """Predict alpha, but with predefined alpha base"""
-    def __init__(self, out_channels=1000, log_fn=utils.log_info):
+    def __init__(self, alpha=None, alpha_bar=None, learning_portion=0.01, log_fn=utils.log_info):
         super().__init__()
-        self.out_channels = out_channels
+        if alpha is not None:
+            a_base = alpha_bar
+            a_base = torch.tensor(a_base)
+        elif alpha_bar is not None:
+            a_bar = torch.tensor(alpha_bar)
+            a_tmp = a_bar[1:] / a_bar[:-1]
+            a_base = torch.cat([a_bar[0:1], a_tmp], dim=0)
+        else:
+            raise ValueError(f"Both alpha and alpha_bar are None")
+        a_min = torch.min(a_base)
+        a_max = torch.max(a_base)
+        assert a_min > 0., f"all alpha must be > 0.: a_min: {a_min}"
+        assert a_max < 1., f"all alpha must be < 1.: a_max: {a_max}"
+        self.out_channels = len(a_base)
+        self.learning_portion = learning_portion
+        # make sure learning-portion is small enough. Then new alpha won't exceed range of [0, 1]
+        _lp = torch.mul(torch.ones_like(a_base, dtype=torch.float64), learning_portion)
+        _lp = torch.minimum(1-a_base, _lp)
+        _lp = torch.minimum(a_base, _lp)
+        _lp = torch.nn.Parameter(_lp, requires_grad=False)
+        self._lp = _lp
         self.log_fn = log_fn
         # hard code the alpha base, which is from DPM-Solver
-        # ab = [0.370370, 0.392727, 0.414157, 0.434840, 0.457460,   # by original TS: 49, 99, 149,,,
-        #       0.481188, 0.506092, 0.532228, 0.559663, 0.588520,
-        #       0.618815, 0.650649, 0.684075, 0.719189, 0.756066,
-        #       0.794792, 0.835464, 0.878171, 0.923015, 0.970102, ]
+        # a_base = [0.370370, 0.392727, 0.414157, 0.434840, 0.457460,   # by original TS: 49, 99, 149,,,
+        #           0.481188, 0.506092, 0.532228, 0.559663, 0.588520,
+        #           0.618815, 0.650649, 0.684075, 0.719189, 0.756066,
+        #           0.794792, 0.835464, 0.878171, 0.923015, 0.970102, ]
         # ab.reverse()
-
+        #
         # by geometric with ratio 1.07
-        ab = [0.991657, 0.978209, 0.961940, 0.942770, 0.920657,
-              0.895610, 0.867686, 0.828529, 0.797675, 0.750600,
-              0.704142, 0.654832, 0.597398, 0.537781, 0.477242,
-              0.417018, 0.353107, 0.292615, 0.236593, 0.177778, ]
-
-        ab = torch.tensor(ab)
-        self.alpha_base = torch.nn.Parameter(ab, requires_grad=False)
+        # a_base = [0.991657, 0.978209, 0.961940, 0.942770, 0.920657,
+        #           0.895610, 0.867686, 0.828529, 0.797675, 0.750600,
+        #           0.704142, 0.654832, 0.597398, 0.537781, 0.477242,
+        #           0.417018, 0.353107, 0.292615, 0.236593, 0.177778, ]
+        self.alpha_base = torch.nn.Parameter(a_base, requires_grad=False)
         self.linear1 = torch.nn.Linear(1000,  2000, dtype=torch.float64)
         self.linear2 = torch.nn.Linear(2000,  2000, dtype=torch.float64)
-        self.linear3 = torch.nn.Linear(2000,  out_channels, dtype=torch.float64)
+        self.linear3 = torch.nn.Linear(2000,  self.out_channels, dtype=torch.float64)
 
         # the seed. we choose value 0.5. And it is better than value 1.0
         ones_k = torch.mul(torch.ones((1000,), dtype=torch.float64), 0.5)
         self.seed_k = torch.nn.Parameter(ones_k, requires_grad=False)
-        log_fn(f"{type(self).__name__}()")
-        log_fn(f"  out_channels: {self.out_channels}")
         f2s = lambda arr: ' '.join([f"{f:.6f}" for f in arr])
-        log_fn(f"  alpha_base     : {len(self.alpha_base)}")
-        log_fn(f"  alpha_base[:5] : [{f2s(self.alpha_base[:5])}]")
-        log_fn(f"  alpha_base[-5:]: [{f2s(self.alpha_base[-5:])}]")
+        log_fn(f"{type(self).__name__}()")
+        log_fn(f"  out_channels     : {self.out_channels}")
+        log_fn(f"  learning_portion : {self.learning_portion}")
+        log_fn(f"  _lp              : {len(self._lp)}")
+        log_fn(f"  _lp[:5]          : [{f2s(self._lp[:5])}]")
+        log_fn(f"  _lp[-5:]         : [{f2s(self._lp[-5:])}]")
+        log_fn(f"  alpha_base       : {len(self.alpha_base)}")
+        log_fn(f"  alpha_base[:5]   : [{f2s(self.alpha_base[:5])}]")
+        log_fn(f"  alpha_base[-5:]  : [{f2s(self.alpha_base[-5:])}]")
 
     def gradient_clip(self):
         if self.linear1.weight.grad is not None:
@@ -339,7 +361,7 @@ class ScheduleParamAlphaModel(nn.Module):
         output = self.linear2(output)
         output = self.linear3(output)
         output = torch.tanh(output)
-        alpha = torch.add(self.alpha_base, output * 0.01)
+        alpha = torch.add(self.alpha_base, output * self._lp)
         aacum = torch.cumprod(alpha, dim=0)
 
         return alpha, aacum
