@@ -396,6 +396,7 @@ class DPM_Solver:
             # To reproduce the results in DPM-Solver paper
             t_idx = [0] + orders
             t_idx = torch.tensor(t_idx, device=device)
+            t_idx = torch.cumsum(t_idx, dim=0)
             timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, K, device, t_idx=t_idx)
         else:
             t_idx = torch.arange(0, steps+1, device=device)

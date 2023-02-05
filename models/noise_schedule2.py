@@ -221,7 +221,7 @@ class NoiseScheduleVP2:
             if len(t) != len(t_idx): raise ValueError(f"t.len != t_idx.len. {len(t)} != {len(t_idx)}")
             alpha_bar_arr = torch.exp(log_alpha_t*2)
             for i in range(len(alpha_bar_arr)):
-                ti_str = f"{t_idx[i]:03d}"
+                ti_str = f"{t_idx[i]:04d}"
                 ab_str = f"{alpha_bar_arr[i]:.8f}"
                 if ti_str not in self.alpha_bar_map:
                     self.alpha_bar_map[ti_str] = ab_str
