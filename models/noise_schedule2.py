@@ -95,7 +95,7 @@ class NoiseScheduleVP2:
                   f" needs to be 'discrete' or 'linear' or 'cosine'"
             raise ValueError(msg)
 
-        self.alpha_bar_set = None  # alpha_bar set.
+        self.alpha_bar_map = None  # alpha_bar map: ts_index -> alpha_bar.
         self.schedule = schedule
         log_fn(f"NoiseScheduleVP2()")
         log_fn(f"  schedule: {self.schedule}")
@@ -212,16 +212,20 @@ class NoiseScheduleVP2:
             log_alpha_t = torch.log(aap) * 0.5
             return log_alpha_t
 
-    def marginal_log_mean_coeff(self, t):
+    def marginal_log_mean_coeff(self, t, t_idx=None):
         """"""
         log_alpha_t = self._marginal_log_mean_coeff(t)
-        if self.alpha_bar_set is not None:
+        if self.alpha_bar_map is not None:
+            if t_idx is None: raise ValueError(f"t_idx is None")
+            t, t_idx = t.reshape((-1)), t_idx.reshape((-1))
+            if len(t) != len(t_idx): raise ValueError(f"t.len != t_idx.len. {len(t)} != {len(t_idx)}")
             alpha_bar_arr = torch.exp(log_alpha_t*2)
-            for alpha_bar in alpha_bar_arr:
-                ab_str = f"{alpha_bar:9.7f}"  # alpha_bar string
-                if ab_str not in self.alpha_bar_set:
-                    self.alpha_bar_set.add(ab_str)
-                    log_fn(f"{type(self).__name__}::marginal_log_mean_coeff() new alpha_bar: {ab_str}")
+            for i in range(len(alpha_bar_arr)):
+                ti_str = f"{t_idx[i]:03d}"
+                ab_str = f"{alpha_bar_arr[i]:.8f}"
+                if ti_str not in self.alpha_bar_map:
+                    self.alpha_bar_map[ti_str] = ab_str
+                    log_fn(f"{type(self).__name__}::marginal_log_mean_coeff() {ti_str}: {ab_str}")
             # for
         # if
         return log_alpha_t
@@ -238,11 +242,11 @@ class NoiseScheduleVP2:
         """
         return torch.sqrt(1. - torch.exp(2. * self.marginal_log_mean_coeff(t)))
 
-    def marginal_lambda(self, t):
+    def marginal_lambda(self, t, t_idx=None):
         """
         Compute lambda_t = log(alpha_t) - log(sigma_t) of a given continuous-time label t in [0, T].
         """
-        log_mean_coeff = self.marginal_log_mean_coeff(t)
+        log_mean_coeff = self.marginal_log_mean_coeff(t, t_idx)
         log_std = 0.5 * torch.log(1. - torch.exp(2. * log_mean_coeff))
         return log_mean_coeff - log_std
 

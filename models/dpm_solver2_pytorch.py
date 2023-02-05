@@ -169,6 +169,8 @@ def model_wrapper(
     assert guidance_type in ["uncond", "classifier", "classifier-free"]
     return model_fn
 
+def log_alpha_to_std(la):
+    return torch.sqrt(1. - torch.exp(2. * la))
 
 class DPM_Solver:
     def __init__(
@@ -296,7 +298,7 @@ class DPM_Solver:
         else:
             return self.noise_prediction_fn(x, t)
 
-    def get_time_steps(self, skip_type, t_T, t_0, N, device):
+    def get_time_steps(self, skip_type, t_T, t_0, N, device, t_idx=None):
         """Compute the intermediate time steps for sampling.
 
         Args:
@@ -308,12 +310,14 @@ class DPM_Solver:
             t_0: A `float`. The ending time of the sampling (default is epsilon).
             N: A `int`. The total number of the spacing of the time steps.
             device: A torch device.
+            t_idx:
         Returns:
             A pytorch tensor of the time steps, with the shape (N + 1,).
         """
         if skip_type == 'logSNR':
-            lambda_T = self.noise_schedule.marginal_lambda(torch.tensor(t_T).to(device))
-            lambda_0 = self.noise_schedule.marginal_lambda(torch.tensor(t_0).to(device))
+            if t_idx is None: t_idx = [None]
+            lambda_T = self.noise_schedule.marginal_lambda(torch.tensor(t_T).to(device), t_idx=t_idx[0])
+            lambda_0 = self.noise_schedule.marginal_lambda(torch.tensor(t_0).to(device), t_idx=t_idx[-1])
             logSNR_steps = torch.linspace(lambda_T.cpu().item(), lambda_0.cpu().item(), N + 1).to(device)
             return self.noise_schedule.inverse_lambda(logSNR_steps)
         elif skip_type == 'time_uniform':
@@ -390,9 +394,12 @@ class DPM_Solver:
             raise ValueError("'order' must be '1' or '2' or '3'.")
         if skip_type == 'logSNR':
             # To reproduce the results in DPM-Solver paper
-            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, K, device)
+            t_idx = [0] + orders
+            t_idx = torch.tensor(t_idx, device=device)
+            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, K, device, t_idx=t_idx)
         else:
-            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, steps, device)
+            t_idx = torch.arange(0, steps+1, device=device)
+            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, steps, device, t_idx=t_idx)
             idx = torch.cumsum(torch.tensor([0] + orders), dim=0).to(device)
             timesteps_outer = timesteps_outer[idx]
         return timesteps_outer, orders
@@ -403,7 +410,7 @@ class DPM_Solver:
         """
         return self.data_prediction_fn(x, s)
 
-    def dpm_solver_first_update(self, x, s, t, model_s=None, return_intermediate=False):
+    def dpm_solver_first_update(self, x, s, t, model_s=None, return_intermediate=False, ts_idx=None):
         """
         DPM-Solver-1 (equivalent to DDIM) from time `s` to time `t`.
 
@@ -414,15 +421,18 @@ class DPM_Solver:
             model_s: A pytorch tensor. The model function evaluated at time `s`.
                 If `model_s` is None, we evaluate the model by `x` and `s`; otherwise we directly use it.
             return_intermediate: A `bool`. If true, also return the model value at time `s`.
+            ts_idx:
         Returns:
             x_t: A pytorch tensor. The approximated solution at time `t`.
         """
+        if ts_idx is None: ts_idx = [None]
         ns = self.noise_schedule
-        dims = x.dim()
-        lambda_s, lambda_t = ns.marginal_lambda(s), ns.marginal_lambda(t)
+        lambda_s = ns.marginal_lambda(s, t_idx=ts_idx[0])
+        lambda_t = ns.marginal_lambda(t, t_idx=ts_idx[-1])
         h = lambda_t - lambda_s
-        log_alpha_s, log_alpha_t = ns.marginal_log_mean_coeff(s), ns.marginal_log_mean_coeff(t)
-        sigma_s, sigma_t = ns.marginal_std(s), ns.marginal_std(t)
+        log_alpha_s = ns.marginal_log_mean_coeff(s, t_idx=ts_idx[0])
+        log_alpha_t = ns.marginal_log_mean_coeff(t, t_idx=ts_idx[-1])
+        sigma_s, sigma_t = log_alpha_to_std(log_alpha_s), log_alpha_to_std(log_alpha_t)
         alpha_t = torch.exp(log_alpha_t)
 
         if self.algorithm_type == "dpmsolver++":
@@ -450,7 +460,8 @@ class DPM_Solver:
             else:
                 return x_t
 
-    def singlestep_dpm_solver_second_update(self, x, s, t, r1=0.5, model_s=None, return_intermediate=False, solver_type='dpmsolver'):
+    def singlestep_dpm_solver_second_update(self, x, s, t, r1=0.5, model_s=None, return_intermediate=False,
+                                            solver_type='dpmsolver', ts_idx=None):
         """
         Singlestep solver DPM-Solver-2 from time `s` to time `t`.
 
@@ -464,6 +475,7 @@ class DPM_Solver:
             return_intermediate: A `bool`. If true, also return the model value at time `s` and `s1` (the intermediate time).
             solver_type: either 'dpmsolver' or 'taylor'. The type for the high-order solvers.
                 The type slightly impacts the performance. We recommend to use 'dpmsolver' type.
+            ts_idx:
         Returns:
             x_t: A pytorch tensor. The approximated solution at time `t`.
         """
@@ -471,16 +483,21 @@ class DPM_Solver:
             raise ValueError("'solver_type' must be either 'dpmsolver' or 'taylor', got {}".format(solver_type))
         if r1 is None:
             r1 = 0.5
+        if ts_idx is None: ts_idx = [None, None, None]
         ns = self.noise_schedule
-        lambda_s, lambda_t = ns.marginal_lambda(s), ns.marginal_lambda(t)
+        lambda_s, lambda_t = ns.marginal_lambda(s, t_idx=ts_idx[0]), ns.marginal_lambda(t, t_idx=ts_idx[-1])
         h = lambda_t - lambda_s
         if self.skip_type == 'predefined':
             s1 = ((s + t) / 2).long()
         else:
             lambda_s1 = lambda_s + r1 * h
             s1 = ns.inverse_lambda(lambda_s1)
-        log_alpha_s, log_alpha_s1, log_alpha_t = ns.marginal_log_mean_coeff(s), ns.marginal_log_mean_coeff(s1), ns.marginal_log_mean_coeff(t)
-        sigma_s, sigma_s1, sigma_t = ns.marginal_std(s), ns.marginal_std(s1), ns.marginal_std(t)
+        log_alpha_s  = ns.marginal_log_mean_coeff(s, t_idx=ts_idx[0])
+        log_alpha_s1 = ns.marginal_log_mean_coeff(s1, t_idx=ts_idx[1])
+        log_alpha_t  = ns.marginal_log_mean_coeff(t, t_idx=ts_idx[2])
+        sigma_s  = log_alpha_to_std(log_alpha_s)
+        sigma_s1 = log_alpha_to_std(log_alpha_s1)
+        sigma_t  = log_alpha_to_std(log_alpha_t)
         alpha_s1, alpha_t = torch.exp(log_alpha_s1), torch.exp(log_alpha_t)
 
         if self.algorithm_type == "dpmsolver++":
@@ -538,7 +555,8 @@ class DPM_Solver:
         else:
             return x_t
 
-    def singlestep_dpm_solver_third_update(self, x, s, t, r1=1./3., r2=2./3., model_s=None, model_s1=None, return_intermediate=False, solver_type='dpmsolver'):
+    def singlestep_dpm_solver_third_update(self, x, s, t, r1=1./3., r2=2./3., model_s=None, model_s1=None,
+                                           return_intermediate=False, solver_type='dpmsolver', ts_idx=None):
         """
         Singlestep solver DPM-Solver-3 from time `s` to time `t`.
 
@@ -552,9 +570,11 @@ class DPM_Solver:
                 If `model_s` is None, we evaluate the model by `x` and `s`; otherwise we directly use it.
             model_s1: A pytorch tensor. The model function evaluated at time `s1` (the intermediate time given by `r1`).
                 If `model_s1` is None, we evaluate the model at `s1`; otherwise we directly use it.
-            return_intermediate: A `bool`. If true, also return the model value at time `s`, `s1` and `s2` (the intermediate times).
+            return_intermediate: A `bool`. If true, also return the model value at time `s`, `s1` and `s2`
+                (the intermediate times).
             solver_type: either 'dpmsolver' or 'taylor'. The type for the high-order solvers.
                 The type slightly impacts the performance. We recommend to use 'dpmsolver' type.
+            ts_idx:
         Returns:
             x_t: A pytorch tensor. The approximated solution at time `t`.
         """
@@ -564,8 +584,9 @@ class DPM_Solver:
             r1 = 1. / 3.
         if r2 is None:
             r2 = 2. / 3.
+        if ts_idx is None: ts_idx = [None] * 4
         ns = self.noise_schedule
-        lambda_s, lambda_t = ns.marginal_lambda(s), ns.marginal_lambda(t)
+        lambda_s, lambda_t = ns.marginal_lambda(s, t_idx=ts_idx[0]), ns.marginal_lambda(t, t_idx=ts_idx[-1])
         h = lambda_t - lambda_s
         if self.skip_type == 'predefined':
             delta = t - s
@@ -576,14 +597,14 @@ class DPM_Solver:
             lambda_s2 = lambda_s + r2 * h
             s1 = ns.inverse_lambda(lambda_s1)
             s2 = ns.inverse_lambda(lambda_s2)
-        log_alpha_s  = ns.marginal_log_mean_coeff(s)
-        log_alpha_s1 = ns.marginal_log_mean_coeff(s1)
-        log_alpha_s2 = ns.marginal_log_mean_coeff(s2)
-        log_alpha_t  = ns.marginal_log_mean_coeff(t)
-        sigma_s  = ns.marginal_std(s)
-        sigma_s1 = ns.marginal_std(s1)
-        sigma_s2 = ns.marginal_std(s2)
-        sigma_t  = ns.marginal_std(t)
+        log_alpha_s  = ns.marginal_log_mean_coeff(s, t_idx=ts_idx[0])
+        log_alpha_s1 = ns.marginal_log_mean_coeff(s1, t_idx=ts_idx[1])
+        log_alpha_s2 = ns.marginal_log_mean_coeff(s2, t_idx=ts_idx[2])
+        log_alpha_t  = ns.marginal_log_mean_coeff(t, t_idx=ts_idx[3])
+        sigma_s  = log_alpha_to_std(log_alpha_s)
+        sigma_s1 = log_alpha_to_std(log_alpha_s1)
+        sigma_s2 = log_alpha_to_std(log_alpha_s2)
+        sigma_t  = log_alpha_to_std(log_alpha_t)
         alpha_s1, alpha_s2, alpha_t = torch.exp(log_alpha_s1), torch.exp(log_alpha_s2), torch.exp(log_alpha_t)
 
         if self.algorithm_type == "dpmsolver++":
@@ -787,7 +808,8 @@ class DPM_Solver:
             )
         return x_t
 
-    def singlestep_dpm_solver_update(self, x, s, t, order, return_intermediate=False, solver_type='dpmsolver', r1=None, r2=None):
+    def singlestep_dpm_solver_update(self, x, s, t, order, return_intermediate=False, solver_type='dpmsolver',
+                                     r1=None, r2=None, ts_idx=None):
         """
         Singlestep DPM-Solver with the order `order` from time `s` to time `t`.
 
@@ -801,15 +823,18 @@ class DPM_Solver:
                 The type slightly impacts the performance. We recommend to use 'dpmsolver' type.
             r1: A `float`. The hyperparameter of the second-order or third-order solver.
             r2: A `float`. The hyperparameter of the third-order solver.
+            ts_idx:
         Returns:
             x_t: A pytorch tensor. The approximated solution at time `t`.
         """
         if order == 1:
-            return self.dpm_solver_first_update(x, s, t, return_intermediate=return_intermediate)
+            return self.dpm_solver_first_update(x, s, t, return_intermediate=return_intermediate, ts_idx=ts_idx)
         elif order == 2:
-            return self.singlestep_dpm_solver_second_update(x, s, t, return_intermediate=return_intermediate, solver_type=solver_type, r1=r1)
+            return self.singlestep_dpm_solver_second_update(x, s, t, return_intermediate=return_intermediate,
+                                                            solver_type=solver_type, r1=r1, ts_idx=ts_idx)
         elif order == 3:
-            return self.singlestep_dpm_solver_third_update(x, s, t, return_intermediate=return_intermediate, solver_type=solver_type, r1=r1, r2=r2)
+            return self.singlestep_dpm_solver_third_update(x, s, t, return_intermediate=return_intermediate,
+                                                           solver_type=solver_type, r1=r1, r2=r2, ts_idx=ts_idx)
         else:
             raise ValueError("Solver order must be 1 or 2 or 3, got {}".format(order))
 
@@ -1109,23 +1134,30 @@ class DPM_Solver:
                         model_prev_list[-1] = self.model_fn(x, t)
             elif method in ['singlestep', 'singlestep_fixed']:
                 if method == 'singlestep':
-                    timesteps_outer, orders = self.get_orders_and_timesteps_for_singlestep_solver(steps=steps, order=order, skip_type=skip_type, t_T=t_T, t_0=t_0, device=device)
+                    timesteps_outer, orders = self.get_orders_and_timesteps_for_singlestep_solver(
+                        steps=steps, order=order, skip_type=skip_type, t_T=t_T, t_0=t_0, device=device)
                 elif method == 'singlestep_fixed':
                     K = steps // order
                     orders = [order,] * K
                     timesteps_outer = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=K, device=device)
+                ts_cnt = 0
                 for step, order in enumerate(orders):
                     s, t = timesteps_outer[step], timesteps_outer[step + 1]
-                    timesteps_inner = self.get_time_steps(skip_type=skip_type, t_T=s.item(), t_0=t.item(), N=order, device=device)
-                    lambda_inner = self.noise_schedule.marginal_lambda(timesteps_inner)
+                    t_idx = torch.arange(ts_cnt, ts_cnt+order+1, dtype=torch.long, device=device)
+                    timesteps_inner = self.get_time_steps(skip_type=skip_type, t_T=s.item(), t_0=t.item(),
+                                                          N=order, device=device, t_idx=t_idx)
+                    lambda_inner = self.noise_schedule.marginal_lambda(timesteps_inner, t_idx)
                     h = lambda_inner[-1] - lambda_inner[0]
                     r1 = None if order <= 1 else (lambda_inner[1] - lambda_inner[0]) / h
                     r2 = None if order <= 2 else (lambda_inner[2] - lambda_inner[0]) / h
-                    x = self.singlestep_dpm_solver_update(x, s, t, order, solver_type=solver_type, r1=r1, r2=r2)
+                    x = self.singlestep_dpm_solver_update(x, s, t, order, solver_type=solver_type,
+                                                          r1=r1, r2=r2, ts_idx=t_idx)
                     if self.correcting_xt_fn is not None:
                         x = self.correcting_xt_fn(x, t, step)
                     if return_intermediate:
                         intermediates.append(x)
+                    ts_cnt += order
+                # for
             else:
                 raise ValueError("Got wrong method {}".format(method))
             if denoise_to_zero:

@@ -112,15 +112,17 @@ class DiffusionDpmSolver(Diffusion):
 
     def alpha_bar_all(self):
         def save_ab_file(file_path):
+            ab_map = self.noise_schedule.alpha_bar_map
+            ab_list = list(ab_map)
+            ab_list.sort(reverse=True)
+            if len(ab_list) != self.steps + 1:
+                raise Exception(f"alpha_bar count {len(ab_list)} not match steps {self.steps}")
             with open(file_path, 'w') as f_ptr:
                 f_ptr.write(f"# order     : {self.order}\n")
                 f_ptr.write(f"# steps     : {self.steps}\n")
                 f_ptr.write(f"# skip_type : {self.skip_type}\n")
                 f_ptr.write(f"# data_type : alpha_bar\n")
-                ab_set = self.noise_schedule.alpha_bar_set
-                for ab in sorted(ab_set, reverse=True):
-                    f_ptr.write(f"{ab}\n")
-                # for
+                [f_ptr.write(f"{ab_map[k]}\n") for k in ab_list]
             # with
         # def
         args = self.args
@@ -131,7 +133,7 @@ class DiffusionDpmSolver(Diffusion):
         logging.info(f"  args.sample_count       : '{args.sample_count}'")
         order_arr = [1, 2, 3]
         steps_arr = [10, 15, 20, 25, 50, 100]
-        skip_arr = ['logSNR', 'time_uniform', 'time_quadratic']
+        skip_arr = ['logSNR', 'time_quadratic', 'time_uniform']
         times = 5
         logging.info(f"  order_arr: {order_arr}")
         logging.info(f"  steps_arr: {steps_arr}")
@@ -266,7 +268,7 @@ class DiffusionDpmSolver(Diffusion):
         else:
             noise_schedule = NoiseScheduleVP2(schedule='discrete', alphas_cumprod=self.alphas_cumprod)
         if self.args.todo.endswith('.alpha_bar_all'):
-            noise_schedule.alpha_bar_set = set()  # only init it for specific args.todo
+            noise_schedule.alpha_bar_map = {}  # only init it for specific args.todo
 
         # 2. Convert your discrete-time `model` to the continuous-time
         # noise prediction model. Here is an example for a diffusion model
