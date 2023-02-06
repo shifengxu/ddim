@@ -110,6 +110,37 @@ class DiffusionDpmSolver(Diffusion):
         for key in sorted(fid_dict):
             logging.info(f"  {key}: {fid_dict[key]:8.5f}")
 
+    def sample_all_scheduled(self):
+        args = self.args
+        af = args.predefined_aap_file
+        logging.info(f"DiffusionDpmSolver::sample_all_scheduled()")
+        logging.info(f"  args.predefined_aap_file: {af}")
+        if not af.startswith('all_scheduled_dir:'):
+            raise ValueError(f"Invalid args.predefined_aap_file: {af}")
+        arr = af.split(':')
+        s_dir = arr[1].strip()
+        f_list = os.listdir(s_dir)                          # file name list
+        f_list = [f for f in f_list if f.endswith('.txt')]  # filter by extension
+        f_list = [os.path.join(s_dir, f) for f in f_list]   # file path list
+        f_list = [f for f in f_list if os.path.isfile(f)]   # remove folder
+        times = args.test_per_epoch   # just reuse the argument
+        logging.info(f"  times    : {times}")
+        logging.info(f"  files    : {len(f_list)}")
+        fid_dict = {}
+        for f_path in sorted(f_list):
+            logging.info(f"aap_file: {f_path} *****************************")
+            args.predefined_aap_file = f_path
+            fid_avg = self.sample_times(times)
+            fid_dict[f_path] = fid_avg
+            logging.info(f"fid_avg: {f_path}: {fid_avg:8.5f}")
+            res_f_name = './sample_all_scheduled_fid.txt'
+            logging.info(f"Save file: {res_f_name}")
+            with open(res_f_name, 'w') as f_ptr:
+                for key in sorted(fid_dict):
+                    f_ptr.write(f"{fid_dict[key]:8.5f}: {key}\n")
+            # with
+        # for
+
     def alpha_bar_all(self):
         def save_ab_file(file_path):
             ab_map = self.noise_schedule.alpha_bar_map
@@ -154,7 +185,7 @@ class DiffusionDpmSolver(Diffusion):
         # for
 
     def sample_times(self, times: int):
-        args, order, steps, skip_type = self.args, self.order, self.steps, self.skip_type
+        args = self.args
         fid_arr = []
         for i in range(times):
             self.sample()
@@ -170,7 +201,9 @@ class DiffusionDpmSolver(Diffusion):
                 samples_find_deep=True,
             )
             fid = metrics_dict['frechet_inception_distance']
-            logging.info(f"{order}-{steps}-{skip_type}-{i} => FID: {fid:.6f}")
+            order, steps, skip_type = self.order, self.steps, self.skip_type
+            ss = args.predefined_aap_file if skip_type == 'predefined' else f"{order}-{steps}-{skip_type}"
+            logging.info(f"{ss}-{i} => FID: {fid:.6f}")
             fid_arr.append(fid)
         # for
         fid_sum = 0.
@@ -205,13 +238,13 @@ class DiffusionDpmSolver(Diffusion):
             os.makedirs(args.sample_output_dir)
         time_start = time.time()
         d = config.data
-        params = self.create_dpm_solver(model, self.device)
+        dpm_solver = self.create_dpm_solver(model, self.device)
         with torch.no_grad():
             for r_idx in range(n_rounds):
                 n = b_sz if r_idx + 1 < n_rounds else self.sample_count - r_idx * b_sz
                 logging.info(f"DiffusionDpmSolver::round: {r_idx}/{n_rounds}. to generate: {n}")
                 x_t = torch.randn(n, d.channels, d.image_size, d.image_size, device=self.device)
-                x = self.sample_by_dpm_solver(x_t, *params)
+                x = self.sample_by_dpm_solver(x_t, dpm_solver)
                 self.save_images(config, x, time_start, r_idx, n_rounds, b_sz)
             # for r_idx
         # with
@@ -243,6 +276,44 @@ class DiffusionDpmSolver(Diffusion):
             # for
         # with
 
+    @staticmethod
+    def load_predefined_aap(f_path: str, meta_dict=None):
+        if not os.path.exists(f_path):
+            raise Exception(f"File not found: {f_path}")
+        if not os.path.isfile(f_path):
+            raise Exception(f"Not file: {f_path}")
+        with open(f_path, 'r') as f_ptr:
+            lines = f_ptr.readlines()
+        cnt_empty = 0
+        cnt_comment = 0
+        f_arr = []  # float array
+        i_arr = []  # int array
+        for line in lines:
+            line = line.strip()
+            if line == '':
+                cnt_empty += 1
+                continue
+            if line.startswith('#'):  # line is like "# order     : 2"
+                cnt_comment += 1
+                arr = line[1:].strip().split(':')
+                key = arr[0].strip()
+                if key in meta_dict: meta_dict[key] = arr[1].strip()
+                continue
+            arr = line.split(':')
+            flt, itg = float(arr[0]), int(arr[1])
+            f_arr.append(flt)
+            i_arr.append(itg)
+        f2s = lambda ff: ' '.join([f"{f:8.6f}" for f in ff])
+        i2s = lambda ii: ' '.join([f"{i: 8d}" for i in ii])
+        logging.info(f"    cnt_empty  : {cnt_empty}")
+        logging.info(f"    cnt_comment: {cnt_comment}")
+        logging.info(f"    cnt_valid  : {len(f_arr)}")
+        logging.info(f"    float[:5]  : [{f2s(f_arr[:5])}]")
+        logging.info(f"    float[-5:] : [{f2s(f_arr[-5:])}]")
+        logging.info(f"    int[:5]    : [{i2s(i_arr[:5])}]")
+        logging.info(f"    int[-5:]   : [{i2s(i_arr[-5:])}]")
+        return f_arr, i_arr
+
     def create_dpm_solver(self, model, device):
         # You need to firstly define your model and the extra inputs of your model,
         # And initialize an `x_T` from the standard normal distribution.
@@ -259,12 +330,40 @@ class DiffusionDpmSolver(Diffusion):
 
         # 1. Define the noise schedule.
         aap_file = self.args.predefined_aap_file
-        if aap_file:
+        if aap_file and aap_file.startswith('geometric_ratio:'):
+            ratio = aap_file.split(':')[1]
+            ratio = float(ratio)
+            series = utils.create_geometric_series(0., 999., ratio, 21)
+            series = series[1:]  # ignore the first element
+            ts = [int(f) for f in series]
+            i_arr_tensor = torch.tensor(ts, device=self.alphas_cumprod.device)
+            f_arr_tensor = self.alphas_cumprod.index_select(0, i_arr_tensor)
+            aap = f_arr_tensor.tolist()
+            self.order = 1
+            self.steps = len(aap)
+            self.skip_type = 'predefined'  # hard code here.
             noise_schedule = NoiseScheduleVP2(schedule='predefined',
                                               alphas_cumprod=self.alphas_cumprod,
-                                              predefined_aap_file=aap_file)
+                                              predefined_aap=aap,
+                                              predefined_ts=ts)
             noise_schedule.to(device)
-            self.save_noise_schedule_data(aap_file, noise_schedule)
+            # self.save_noise_schedule_data(aap_file, noise_schedule)
+        elif aap_file:
+            meta_dict = {'order': None, 'steps': None}
+            aap, ts = self.load_predefined_aap(aap_file, meta_dict)
+            if meta_dict['steps'] != f"{len(aap)}":
+                raise Exception(f"steps not match between comment and real data: {aap_file}."
+                                f" {meta_dict['steps']} != {len(aap)}")
+            if meta_dict['order'] is None:
+                raise Exception(f"Not found order info from file: {aap_file}")
+            self.order = int(meta_dict['order'])
+            self.steps = len(aap)
+            self.skip_type = 'predefined'  # hard code here.
+            noise_schedule = NoiseScheduleVP2(schedule='predefined',
+                                              alphas_cumprod=self.alphas_cumprod,
+                                              predefined_aap=aap,
+                                              predefined_ts=ts)
+            noise_schedule.to(device)
         else:
             noise_schedule = NoiseScheduleVP2(schedule='discrete', alphas_cumprod=self.alphas_cumprod)
         if self.args.todo.endswith('.alpha_bar_all'):
@@ -286,19 +385,17 @@ class DiffusionDpmSolver(Diffusion):
         # costs and the sample quality.
         if aap_file:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type="predefined")
-            t_start, t_end = noise_schedule.predefined_aap_cnt, 0
         else:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type=self.skip_type)
-            t_start, t_end = None, None
 
         # Can also try
         # dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver++")
 
         self.dpm_solver = dpm_solver
         self.noise_schedule = noise_schedule
-        return dpm_solver, t_start, t_end
+        return dpm_solver
 
-    def sample_by_dpm_solver(self, x_T, dpm_solver: DPM_Solver, t_start, t_end):
+    def sample_by_dpm_solver(self, x_T, dpm_solver: DPM_Solver):
         # You can use steps = 10, 12, 15, 20, 25, 50, 100.
         # Empirically, we find that steps in [10, 20] can generate quite good samples.
         # And steps = 20 can almost converge.
@@ -308,8 +405,8 @@ class DiffusionDpmSolver(Diffusion):
             # skip_type="time_uniform",
             order=self.order,
             method="singlestep",
-            t_start=t_start,
-            t_end=t_end,
+            t_start=None,
+            t_end=None,
         )
         return x_sample
 

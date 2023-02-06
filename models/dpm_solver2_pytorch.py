@@ -1074,9 +1074,11 @@ class DPM_Solver:
             log_fn(f" skip_type : {skip_type}")
             log_fn(f" t_start   : {t_start}")
             log_fn(f" t_end     : {t_end}")
-        t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
-        t_T = self.noise_schedule.T if t_start is None else t_start
-        if skip_type != 'predefined':
+        if skip_type == 'predefined':
+            t_0, t_T = 0, steps
+        else:
+            t_0 = 1. / self.noise_schedule.total_N if t_end is None else t_end
+            t_T = self.noise_schedule.T if t_start is None else t_start
             msg = "Time range needs to be greater than 0. For discrete-time DPMs," \
                   " it needs to be in [1 / N, 1], where N is the length of betas array"
             assert t_0 > 0 and t_T > 0, msg

@@ -15,7 +15,8 @@ class NoiseScheduleVP2:
             continuous_beta_0=0.1,
             continuous_beta_1=20.,
             dtype=torch.float32,
-            predefined_aap_file=None,
+            predefined_aap=None,
+            predefined_ts=None,
     ):
         """Create a wrapper class for the forward SDE (VP type).
 
@@ -110,10 +111,8 @@ class NoiseScheduleVP2:
             self.t_array = torch.linspace(0., 1., self.total_N + 1)[1:].reshape((1, -1)).to(dtype=dtype)
             self.log_alpha_array = log_alphas.reshape((1, -1,)).to(dtype=dtype)
         elif schedule == 'predefined':
-            self.predefined_aap_file = predefined_aap_file
             self.alphas_cumprod = alphas_cumprod
-            log_fn(f"  load_predefined_aap() from: {self.predefined_aap_file}")
-            aap, ts = self.load_predefined_aap(self.predefined_aap_file)
+            aap, ts = predefined_aap, predefined_ts
             self.predefined_aap_cnt = len(aap)
             aap.insert(0, 0.9999)
             ts.insert(0, 0)
@@ -144,51 +143,6 @@ class NoiseScheduleVP2:
                 self.T = 0.9946
             else:
                 self.T = 1.
-
-    def load_predefined_aap(self, f_path: str):
-        if f_path.startswith('geometric_ratio:'):
-            ratio = f_path.split(':')[1]
-            ratio = float(ratio)
-            series = utils.create_geometric_series(0., 999., ratio, 21)
-            series = series[1:]  # ignore the first element
-            i_arr = [int(f) for f in series]
-            i_arr_tensor = torch.tensor(i_arr, device=self.alphas_cumprod.device)
-            f_arr_tensor = self.alphas_cumprod.index_select(0, i_arr_tensor)
-            f_arr = f_arr_tensor.tolist()
-            return f_arr, i_arr
-
-        if not os.path.exists(f_path):
-            raise Exception(f"File not found: {f_path}")
-        if not os.path.isfile(f_path):
-            raise Exception(f"Not file: {f_path}")
-        with open(f_path, 'r') as f:
-            lines = f.readlines()
-        cnt_empty = 0
-        cnt_comment = 0
-        f_arr = []  # float array
-        i_arr = []  # int array
-        for line in lines:
-            line = line.strip()
-            if line == '':
-                cnt_empty += 1
-                continue
-            if line.startswith('#'):
-                cnt_comment += 1
-                continue
-            arr = line.split(':')
-            flt, itg = float(arr[0]), int(arr[1])
-            f_arr.append(flt)
-            i_arr.append(itg)
-        f2s = lambda ff: ' '.join([f"{f:8.6f}" for f in ff])
-        i2s = lambda ii: ' '.join([f"{i: 8d}" for i in ii])
-        log_fn(f"    cnt_empty  : {cnt_empty}")
-        log_fn(f"    cnt_comment: {cnt_comment}")
-        log_fn(f"    cnt_valid  : {len(f_arr)}")
-        log_fn(f"    float[:5]  : [{f2s(f_arr[:5])}]")
-        log_fn(f"    float[-5:] : [{f2s(f_arr[-5:])}]")
-        log_fn(f"    int[:5]    : [{i2s(i_arr[:5])}]")
-        log_fn(f"    int[-5:]   : [{i2s(i_arr[-5:])}]")
-        return f_arr, i_arr
 
     def to(self, device):
         self.predefined_aap = self.predefined_aap.to(device)
