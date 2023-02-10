@@ -6,6 +6,8 @@ import argparse
 import sys
 import os
 import time
+
+import torch
 from torch import optim
 from torch.backends import cudnn
 from torch.nn import DataParallel
@@ -74,6 +76,7 @@ def load_floats_from_file(f_path, c_arr):
         lines = f.readlines()
     cnt_empty = 0
     cnt_comment = 0
+    order = None
     f_arr = []
     for line in lines:
         line = line.strip()
@@ -83,13 +86,18 @@ def load_floats_from_file(f_path, c_arr):
         if line.startswith('#'):
             cnt_comment += 1
             c_arr.append(line)
+            key, val = line[1:].split(':')
+            if key.strip() == 'order':
+                if order is None: order = val.strip()
+                else: raise ValueError(f"duplicate order in {f_path}")
             continue
         flt = float(line)
         f_arr.append(flt)
     log_fn(f"  cnt_empty  : {cnt_empty}")
     log_fn(f"  cnt_comment: {cnt_comment}")
     log_fn(f"  cnt_valid  : {len(f_arr)}")
-    return f_arr
+    if order is None: raise ValueError(f"Not found order in {f_path}")
+    return f_arr, int(order)
 
 def main():
     args = parse_args()
@@ -116,7 +124,7 @@ def main():
     for idx, f_path in enumerate(sorted(file_list)):
         log_fn(f"{idx:03d}/{f_cnt}: {f_path} ****************************")
         c_arr = [f" Old comments in file {f_path}"]  # comment array
-        alpha_bar = load_floats_from_file(f_path, c_arr)
+        alpha_bar, order = load_floats_from_file(f_path, c_arr)
         c_arr = [c[1:].strip() for c in c_arr]  # remove prefix '#'
         alpha_bar = alpha_bar[1:]  # ignore the first one, as it is for timestep 0
         _, idx_arr = vs(torch.tensor(alpha_bar, device=args.device), include_index=True)
@@ -124,11 +132,46 @@ def main():
         s_arr.insert(0, "Old alpha_bar and its timestep")
         new_arr = c_arr + [''] + s_arr + [''] + m_arr
         f_name = os.path.basename(f_path)
-        # if f_name != 'dpm_alphaBar_1-025-logSNR.txt': continue
-        train(args, vs, alpha_bar, new_arr, f_name)
+        # if order != 2: continue # todo: comment it out
+        train(args, vs, alpha_bar, order, new_arr, f_name)
     return 0
 
-def train(args, vs, alpha_bar, m_arr, f_name):
+def calc_loss(alpha, aacum, weight_arr, order):
+    if order == 1:
+        loss_var, coef, numerator, sub_var = ScheduleBase.accumulate_variance(alpha, aacum, weight_arr, True)
+        return loss_var, coef, weight_arr, numerator, sub_var
+    elif order == 2:
+        a_cnt = len(aacum)
+        if a_cnt % 2 == 0:
+            # aacum index and weight index. if a_cnt is 8, then index is 0 ~ 7
+            idx_a = list(range(1, a_cnt, 2))  # [1, 3, 5, 7]
+            idx_w = list(range(0, a_cnt, 2))  # [0, 2, 4, 6]
+        else:
+            # aacum index and weight index. if a_cnt is 9, then index is 0 ~ 8
+            idx_a = list(range(0, a_cnt, 2))  # [0, 2, 4, 6, 8]
+            idx_w = list(range(1, a_cnt, 2))  # [1, 3, 5, 7]
+            idx_w = [0] + idx_w               # [0, 1, 3, 5, 7]
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        aa2 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt2 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        tmp = [torch.ones((1,), device=aacum.device), aa2[:-1]]
+        tmp = torch.cat(tmp, dim=0)
+        al2 = aa2 / tmp # new alpha
+        loss_var, c, n, s = ScheduleBase.accumulate_variance(al2, aa2, wt2, True)
+        coef      = torch.zeros_like(aacum)
+        numerator = torch.zeros_like(aacum)
+        sub_var   = torch.zeros_like(aacum)
+        weight    = torch.zeros_like(aacum)
+        coef[idx_a]      = c
+        numerator[idx_a] = n
+        sub_var[idx_a]   = s
+        weight[idx_a]    = wt2
+        return loss_var, coef, weight, numerator, sub_var
+    else:
+        raise ValueError(f"Unsupported order {order}")
+
+def train(args, vs, alpha_bar, order, m_arr, f_name):
     model = model_generate(alpha_bar, args.gpu_ids, args.device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
     model.train()
@@ -141,7 +184,7 @@ def train(args, vs, alpha_bar, m_arr, f_name):
         optimizer.zero_grad()
         alpha, aacum = model()
         weight_arr, idx_arr = vs(aacum, include_index=True)
-        loss_var, coef, numerator, sub_var = ScheduleBase.accumulate_variance(alpha, aacum, weight_arr, True)
+        loss_var, coef, weight_arr, numerator, sub_var = calc_loss(alpha, aacum, weight_arr, order)
         if loss_ori is None: loss_ori = loss_var.item()
         aa_min = aacum[-1]
         loss_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
@@ -172,6 +215,7 @@ def detail_save(f_path, alpha, aacum, idx_arr, weight_arr, coef, numerator, sub_
         s = f"{aacum[i]:8.6f}: {idx_arr[i]:3d}: {alpha[i]:8.6f};" \
             f" {coef[i]:8.6f}*{weight_arr[i]:11.6f}={numerator[i]:9.6f};" \
             f" {numerator[i]:9.6f}/{aacum[i]:8.6f}={sub_var[i]:10.6f}"
+        s = s.replace('0.000000', '0.0     ')
         combo.append(s)
     m_arr.append('aacum : ts : alpha   ; coef    *weight     =numerator; numerator/aacum   =sub_var')
     log_fn(f"Save file: {f_path}")

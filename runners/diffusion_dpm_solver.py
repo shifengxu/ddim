@@ -137,7 +137,7 @@ class DiffusionDpmSolver(Diffusion):
             logging.info(f"Save file: {res_f_name}")
             with open(res_f_name, 'w') as f_ptr:
                 for key in sorted(fid_dict):
-                    f_ptr.write(f"{fid_dict[key]:8.5f}: {key}\n")
+                    f_ptr.write(f"{fid_dict[key]:9.5f}: {key}\n")
             # with
         # for
 
@@ -349,12 +349,12 @@ class DiffusionDpmSolver(Diffusion):
             noise_schedule.to(device)
             # self.save_noise_schedule_data(aap_file, noise_schedule)
         elif aap_file:
-            meta_dict = {'order': None, 'steps': None}
+            meta_dict = {'order': '', 'steps': ''}
             aap, ts = self.load_predefined_aap(aap_file, meta_dict)
             if meta_dict['steps'] != f"{len(aap)}":
                 raise Exception(f"steps not match between comment and real data: {aap_file}."
                                 f" {meta_dict['steps']} != {len(aap)}")
-            if meta_dict['order'] is None:
+            if meta_dict['order'] == '':
                 raise Exception(f"Not found order info from file: {aap_file}")
             self.order = int(meta_dict['order'])
             self.steps = len(aap)

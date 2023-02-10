@@ -486,9 +486,11 @@ class DPM_Solver:
             r1 = 0.5
         if ts_idx is None: ts_idx = [None, None, None]
         ns = self.noise_schedule
-        lambda_s, lambda_t = ns.marginal_lambda(s, t_idx=ts_idx[0]), ns.marginal_lambda(t, t_idx=ts_idx[-1])
+        lambda_s = ns.marginal_lambda(s, t_idx=ts_idx[0])
+        lambda_t = ns.marginal_lambda(t, t_idx=ts_idx[-1])
         h = lambda_t - lambda_s
         if self.skip_type == 'predefined':
+            assert s - t == 2, f"s-t!=2. s:{s:d}, t:{t:d}"
             s1 = ((s + t) / 2).long()
         else:
             lambda_s1 = lambda_s + r1 * h
@@ -532,10 +534,7 @@ class DPM_Solver:
 
             if model_s is None:
                 model_s = self.model_fn(x, s)
-            x_s1 = (
-                torch.exp(log_alpha_s1 - log_alpha_s) * x
-                - (sigma_s1 * phi_11) * model_s
-            )
+            x_s1 = torch.exp(log_alpha_s1 - log_alpha_s) * x - (sigma_s1 * phi_11) * model_s
             model_s1 = self.model_fn(x_s1, s1)
             if solver_type == 'dpmsolver':
                 x_t = (
