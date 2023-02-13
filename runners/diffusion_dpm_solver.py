@@ -19,7 +19,6 @@ class DiffusionDpmSolver(Diffusion):
     def __init__(self, args, config, device=None):
         super().__init__(args, config, device)
         self.sample_count = 50000    # sample image count
-        self.sample_img_init_id = 0  # sample image init ID. useful when generate image in parallel.
         self.dpm_solver = None
         self.noise_schedule = None
         self.t_start = None
@@ -35,7 +34,7 @@ class DiffusionDpmSolver(Diffusion):
         img_dir = self.args.sample_output_dir
         img_path = None
         for i in range(img_cnt):
-            img_id = r_idx * b_sz + i + self.sample_img_init_id
+            img_id = r_idx * b_sz + i
             img_path = os.path.join(img_dir, f"{img_id:05d}.png")
             tvu.save_image(x[i], img_path)
         logging.info(f"  saved {img_cnt} images: {img_path}. elp:{elp}, eta:{eta}")
@@ -113,29 +112,33 @@ class DiffusionDpmSolver(Diffusion):
     def sample_all_scheduled(self):
         args = self.args
         af = args.predefined_aap_file
-        logging.info(f"DiffusionDpmSolver::sample_all_scheduled()")
+        logging.info(f"DiffusionDpmSolver::sample_all_scheduled() ***********************************")
         logging.info(f"  args.predefined_aap_file: {af}")
         if not af.startswith('all_scheduled_dir:'):
             raise ValueError(f"Invalid args.predefined_aap_file: {af}")
+        sum_dir = args.ab_summary_dir
+        if not os.path.exists(sum_dir):
+            logging.info(f"  os.makedirs({sum_dir})")
+            os.makedirs(sum_dir)
         arr = af.split(':')
         s_dir = arr[1].strip()
         f_list = os.listdir(s_dir)                          # file name list
         f_list = [f for f in f_list if f.endswith('.txt')]  # filter by extension
         f_list = [os.path.join(s_dir, f) for f in f_list]   # file path list
         f_list = [f for f in f_list if os.path.isfile(f)]   # remove folder
-        times = args.test_per_epoch   # just reuse the argument
-        logging.info(f"  times    : {times}")
-        logging.info(f"  files    : {len(f_list)}")
+        times = args.repeat_times
+        logging.info(f"  repeat_times: {times}")
+        logging.info(f"  files count : {len(f_list)}")
         fid_dict = {}
         for f_path in sorted(f_list):
-            logging.info(f"aap_file: {f_path} *****************************")
+            logging.info(f"aap_file: {f_path} ------------------------------------")
             args.predefined_aap_file = f_path
             fid_avg = self.sample_times(times)
             fid_dict[f_path] = fid_avg
             logging.info(f"fid_avg: {f_path}: {fid_avg:8.5f}")
-            res_f_name = './sample_all_scheduled_fid.txt'
-            logging.info(f"Save file: {res_f_name}")
-            with open(res_f_name, 'w') as f_ptr:
+            f_path = os.path.join(sum_dir, './sample_all_scheduled_fid.txt')
+            logging.info(f"Save file: {f_path}")
+            with open(f_path, 'w') as f_ptr:
                 for key in sorted(fid_dict):
                     f_ptr.write(f"{fid_dict[key]:9.5f}: {key}\n")
             # with
@@ -162,17 +165,17 @@ class DiffusionDpmSolver(Diffusion):
         logging.info(f"DiffusionDpmSolver::alpha_bar_all()")
         logging.info(f"  args.predefined_aap_file: '{args.predefined_aap_file}'")
         logging.info(f"  args.sample_count       : '{args.sample_count}'")
-        order_arr = [1, 2, 3]
-        steps_arr = [10, 15, 20, 25, 50, 100]
-        skip_arr = ['logSNR', 'time_quadratic', 'time_uniform']
-        o_dir = args.test_data_dir or '.'   # just re-use the args
+        order_arr = args.order_arr or [1, 2, 3]
+        steps_arr = args.steps_arr or [10, 15, 20, 25, 50, 100]
+        skip_arr = args.skip_type_arr or ['logSNR', 'time_quadratic', 'time_uniform']
+        ab_dir = args.ab_original_dir or '.'
         logging.info(f"  order_arr: {order_arr}")
         logging.info(f"  steps_arr: {steps_arr}")
         logging.info(f"  skip_arr : {skip_arr}")
-        logging.info(f"  o_dir    : {o_dir}")
-        if not os.path.exists(o_dir):
-            logging.info(f"  os.makedirs({o_dir})")
-            os.makedirs(o_dir)
+        logging.info(f"  o_dir    : {ab_dir}")
+        if not os.path.exists(ab_dir):
+            logging.info(f"  os.makedirs({ab_dir})")
+            os.makedirs(ab_dir)
         for order in order_arr:
             self.order = order
             for steps in steps_arr:
@@ -181,7 +184,7 @@ class DiffusionDpmSolver(Diffusion):
                     self.skip_type = skip_type
                     self.sample()
                     f_path = f"dpm_alphaBar_{order}-{steps:03d}-{skip_type}.txt"
-                    f_path = os.path.join(o_dir, f_path)
+                    f_path = os.path.join(ab_dir, f_path)
                     save_ab_file(f_path)
                     logging.info(f"File saved: {f_path}")
                 # for
@@ -223,15 +226,9 @@ class DiffusionDpmSolver(Diffusion):
         model.eval()
 
         self.sample_count = args.sample_count
-        self.sample_img_init_id = args.sample_img_init_id
         logging.info(f"DiffusionDpmSolver::sample(self, {type(model).__name__})...")
-        logging.info(f"  args.sample_output_dir : {args.sample_output_dir}")
-        logging.info(f"  args.sample_type       : {args.sample_type}")
-        logging.info(f"  args.skip_type         : {args.skip_type}")
-        logging.info(f"  args.timesteps         : {args.timesteps}")
-        logging.info(f"  num_timesteps          : {self.num_timesteps}")
+        logging.info(f"  sample_output_dir      : {args.sample_output_dir}")
         logging.info(f"  sample_count           : {self.sample_count}")
-        logging.info(f"  sample_img_init_id     : {self.sample_img_init_id}")
         b_sz = args.sample_batch_size or config.sampling.batch_size
         n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
         logging.info(f"  batch_size             : {b_sz}")
@@ -343,7 +340,7 @@ class DiffusionDpmSolver(Diffusion):
             noise_schedule.to(device)
         else:
             noise_schedule = NoiseScheduleVP2(schedule='discrete', alphas_cumprod=self.alphas_cumprod)
-        if self.args.todo.endswith('.alpha_bar_all'):
+        if self.args.todo.endswith('alpha_bar_all'):
             noise_schedule.alpha_bar_map = {}  # only init it for specific args.todo
 
         # 2. Convert your discrete-time `model` to the continuous-time
