@@ -165,12 +165,14 @@ class DiffusionDpmSolver(Diffusion):
         order_arr = [1, 2, 3]
         steps_arr = [10, 15, 20, 25, 50, 100]
         skip_arr = ['logSNR', 'time_quadratic', 'time_uniform']
-        times = 5
+        o_dir = args.test_data_dir or '.'   # just re-use the args
         logging.info(f"  order_arr: {order_arr}")
         logging.info(f"  steps_arr: {steps_arr}")
         logging.info(f"  skip_arr : {skip_arr}")
-        logging.info(f"  times    : {times}")
-        o_dir = './output7_vividvar'
+        logging.info(f"  o_dir    : {o_dir}")
+        if not os.path.exists(o_dir):
+            logging.info(f"  os.makedirs({o_dir})")
+            os.makedirs(o_dir)
         for order in order_arr:
             self.order = order
             for steps in steps_arr:

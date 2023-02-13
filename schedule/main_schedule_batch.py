@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--n_epochs", type=int, default=10000)
     parser.add_argument('--log_interval', type=int, default=2000)
     parser.add_argument('--lr', type=float, default=0.000001)
+    parser.add_argument('--lp', type=float, default=0.01, help='learning_portion')
     parser.add_argument('--output_dir', type=str, default='./output7_vividvar')
     parser.add_argument('--alpha_bar_dir', type=str, default='./exp/dpm_alphaBar')
     parser.add_argument('--aa_low', type=float, default=0.0001, help="Alpha Accum lower bound")
@@ -59,8 +60,8 @@ def parse_args():
 
     return args
 
-def model_generate(alpha_bar, gpu_ids, device):
-    model = ScheduleParamAlphaModel(alpha_bar=alpha_bar)
+def model_generate(alpha_bar, lp, gpu_ids, device):
+    model = ScheduleParamAlphaModel(alpha_bar=alpha_bar, learning_portion=lp)
     log_fn(f"model: {type(model).__name__}")
     log_fn(f"  out_channels: {model.out_channels}")
     log_fn(f"  model.to({device})")
@@ -132,7 +133,6 @@ def main():
         s_arr.insert(0, "Old alpha_bar and its timestep")
         new_arr = c_arr + [''] + s_arr + [''] + m_arr
         f_name = os.path.basename(f_path)
-        # if order != 2: continue # todo: comment it out
         train(args, vs, alpha_bar, order, new_arr, f_name)
     return 0
 
@@ -141,38 +141,189 @@ def calc_loss(alpha, aacum, weight_arr, order):
         loss_var, coef, numerator, sub_var = ScheduleBase.accumulate_variance(alpha, aacum, weight_arr, True)
         return loss_var, coef, weight_arr, numerator, sub_var
     elif order == 2:
-        a_cnt = len(aacum)
-        if a_cnt % 2 == 0:
-            # aacum index and weight index. if a_cnt is 8, then index is 0 ~ 7
-            idx_a = list(range(1, a_cnt, 2))  # [1, 3, 5, 7]
-            idx_w = list(range(0, a_cnt, 2))  # [0, 2, 4, 6]
-        else:
-            # aacum index and weight index. if a_cnt is 9, then index is 0 ~ 8
-            idx_a = list(range(0, a_cnt, 2))  # [0, 2, 4, 6, 8]
-            idx_w = list(range(1, a_cnt, 2))  # [1, 3, 5, 7]
-            idx_w = [0] + idx_w               # [0, 1, 3, 5, 7]
-        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
-        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
-        aa2 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
-        wt2 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
-        tmp = [torch.ones((1,), device=aacum.device), aa2[:-1]]
-        tmp = torch.cat(tmp, dim=0)
-        al2 = aa2 / tmp # new alpha
-        loss_var, c, n, s = ScheduleBase.accumulate_variance(al2, aa2, wt2, True)
-        coef      = torch.zeros_like(aacum)
-        numerator = torch.zeros_like(aacum)
-        sub_var   = torch.zeros_like(aacum)
-        weight    = torch.zeros_like(aacum)
-        coef[idx_a]      = c
-        numerator[idx_a] = n
-        sub_var[idx_a]   = s
-        weight[idx_a]    = wt2
-        return loss_var, coef, weight, numerator, sub_var
+        return calc_loss_order2(aacum, weight_arr)
+    elif order == 3:
+        return calc_loss_order3_v2(aacum, weight_arr)
     else:
         raise ValueError(f"Unsupported order {order}")
 
+def calc_loss_order2(aacum, weight_arr):
+    a_cnt = len(aacum)
+    if a_cnt % 2 == 0:
+        # aacum index and weight index. if a_cnt is 8, then index is 0 ~ 7
+        idx_a = list(range(1, a_cnt, 2))  # [1, 3, 5, 7]
+        idx_w = list(range(0, a_cnt, 2))  # [0, 2, 4, 6]
+    else:
+        # aacum index and weight index. if a_cnt is 9, then index is 0 ~ 8
+        idx_a = list(range(0, a_cnt, 2))  # [0, 2, 4, 6, 8]
+        idx_w = list(range(1, a_cnt, 2))  # [1, 3, 5, 7]
+        idx_w = [0] + idx_w  # [0, 1, 3, 5, 7]
+    idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+    idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+    aa2 = torch.index_select(aacum, dim=0, index=idx_a)  # new aacum
+    tmp = [torch.ones((1,), device=aacum.device), aa2[:-1]]
+    tmp = torch.cat(tmp, dim=0)
+    al2 = aa2 / tmp  # new alpha
+    wt1 = torch.index_select(weight_arr, dim=0, index=idx_a)
+    wt2 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+    wt2 += 1.0 * wt1  # plus some weight
+    loss_var, c, n, s = ScheduleBase.accumulate_variance(al2, aa2, wt2, True)
+    coef = torch.zeros_like(aacum)
+    numerator = torch.zeros_like(aacum)
+    sub_var = torch.zeros_like(aacum)
+    weight = torch.zeros_like(aacum)
+    coef[idx_a] = c
+    numerator[idx_a] = n
+    sub_var[idx_a] = s
+    weight[idx_a] = wt2
+    return loss_var, coef, weight, numerator, sub_var
+
+def calc_loss_order3(aacum, weight_arr):
+    """
+    For detailed explanation, please see the doc: Readme_DPM_Solver3_predefined.docx
+    :param aacum:
+    :param weight_arr:
+    :return:
+    """
+    a_cnt = len(aacum)
+    if a_cnt % 3 == 0:
+        # if a_cnt is  9, then index will be 0 ~ 8.
+        # Then inner jump size array is [3, 3, 2, 1]
+        # aacum idx will be [0, 2, 5, 8]
+        # weight index is complicated. For the case of jump size 3, each step involves 2 weights.
+        # weight series 1 : [0, 1, 5, 8]
+        # weight series 2:  [      3, 6]
+        # aacum index and weight index.
+        idx_a = [0, 2] + list(range(5, a_cnt, 3))  # [0, 2, 5, 8]
+        idx_w = [0, 1] + list(range(5, a_cnt, 3))  # [0, 1, 5, 8] weight series 1
+        idx_v = list(range(3, a_cnt, 3))           # [      3, 6] weight series 2
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
+        aa3 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
+        wt3[2:] += wtv # append series 2 into series 1.
+    elif a_cnt % 3 == 1:
+        # if a_cnt is 10, then index will be 0 ~ 9.
+        # Then inner jump size array [3, 3, 3, 1]
+        # aacum idx will be [0, 3, 6, 9]
+        # weight series 1 : [0, 3, 6, 9]
+        # weight series 2:  [   1, 4, 7]
+        # aacum index and weight index.
+        idx_a = list(range(0, a_cnt, 3))  # [0, 3, 6, 9]
+        idx_w = list(range(0, a_cnt, 3))  # [0, 3, 6, 9] weight series 1
+        idx_v = list(range(1, a_cnt, 3))  # [   1, 4, 7] weight series 2
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
+        aa3 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
+        wt3[1:] += wtv # append series 2 into series 1.
+    else: # a_cnt % 3 == 2
+        # If a_cnt is 11, then the index will be 0 ~ 10
+        # Then inner jump size array [3, 3, 3, 2]
+        # aacum idx will be [1, 4, 7, 10]
+        # weight series 1 : [0, 4, 7, 10]
+        # weight series 2:  [   2, 5,  8]
+        # aacum index and weight index.
+        idx_a = list(range(1, a_cnt, 3))        # [1, 4, 7, 10]
+        idx_w = [0] + list(range(4, a_cnt, 3))  # [0, 4, 7, 10] weight series 1
+        idx_v = list(range(2, a_cnt, 3))        # [   2, 5,  8] weight series 2
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
+        aa3 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
+        wt3[1:] += wtv # append series 2 into series 1.
+    tmp = [torch.ones((1,), device=aacum.device), aa3[:-1]]
+    tmp = torch.cat(tmp, dim=0)
+    al3 = aa3 / tmp  # new alpha
+    loss_var, c, n, s = ScheduleBase.accumulate_variance(al3, aa3, wt3, True)
+    coef = torch.zeros_like(aacum)
+    numerator = torch.zeros_like(aacum)
+    sub_var = torch.zeros_like(aacum)
+    weight = torch.zeros_like(aacum)
+    coef[idx_a] = c
+    numerator[idx_a] = n
+    sub_var[idx_a] = s
+    weight[idx_a] = wt3
+    return loss_var, coef, weight, numerator, sub_var
+
+def calc_loss_order3_v2(aacum, weight_arr):
+    """
+    the original code follows the DPM Solver-3 formula, but not working well with time_uniform.
+    So try the below code.
+    :param aacum:
+    :param weight_arr:
+    :return:
+    """
+    a_cnt = len(aacum)
+    if a_cnt % 3 == 0:
+        # if a_cnt is  9, then index will be 0 ~ 8.
+        idx_a = list(range(2, a_cnt, 3))  # [2, 5, 8]
+        idx_w = list(range(2, a_cnt, 3))  # [2, 5, 8] weight series 1
+        idx_v = list(range(0, a_cnt, 3))  # [0, 3, 6] weight series 2
+        idx_u = list(range(1, a_cnt, 3))  # [1, 4, 7] weight series 3
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
+        idx_u = torch.tensor(idx_u, dtype=torch.long, device=aacum.device)
+        aa3 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
+        wtu = torch.index_select(weight_arr, dim=0, index=idx_u)
+        wt3 += wtv # append series 2 into series 1.
+        wt3 += wtu # append series 3 into series 1.
+    elif a_cnt % 3 == 1:
+        # if a_cnt is 10, then index will be 0 ~ 9.
+        idx_a = list(range(0, a_cnt, 3))  # [0, 3, 6, 9]
+        idx_w = list(range(0, a_cnt, 3))  # [0, 3, 6, 9] weight series 1
+        idx_v = list(range(1, a_cnt, 3))  # [   1, 4, 7] weight series 2
+        idx_u = list(range(2, a_cnt, 3))  # [   2, 5, 8] weight series 3
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
+        idx_u = torch.tensor(idx_u, dtype=torch.long, device=aacum.device)
+        aa3 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
+        wtu = torch.index_select(weight_arr, dim=0, index=idx_u)
+        wt3[1:] += (wt3[1:] + wtv + wtu) / 3 # append series 2 & 3 into series 1.
+    else: # a_cnt % 3 == 2
+        # If a_cnt is 11, then the index will be 0 ~ 10
+        idx_a = list(range(1, a_cnt, 3))        # [1, 4, 7, 10]
+        idx_w = [0] + list(range(4, a_cnt, 3))  # [0, 4, 7, 10] weight series 1
+        idx_v = list(range(2, a_cnt, 3))        # [   2, 5,  8] weight series 2
+        idx_u = [1] + list(range(3, a_cnt, 3))  # [1, 3, 6,  9] weight series 3
+        idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
+        idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
+        idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
+        idx_u = torch.tensor(idx_u, dtype=torch.long, device=aacum.device)
+        aa3 = torch.index_select(aacum, dim=0, index=idx_a)       # new aacum
+        wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
+        wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
+        wtu = torch.index_select(weight_arr, dim=0, index=idx_u)
+        wt3 += wtu # append series 2 & 3 into series 1.
+        wt3[1:] += wtv
+    tmp = [torch.ones((1,), device=aacum.device), aa3[:-1]]
+    tmp = torch.cat(tmp, dim=0)
+    al3 = aa3 / tmp  # new alpha
+    loss_var, c, n, s = ScheduleBase.accumulate_variance(al3, aa3, wt3, True)
+    coef = torch.zeros_like(aacum)
+    numerator = torch.zeros_like(aacum)
+    sub_var = torch.zeros_like(aacum)
+    weight = torch.zeros_like(aacum)
+    coef[idx_a] = c
+    numerator[idx_a] = n
+    sub_var[idx_a] = s
+    weight[idx_a] = wt3
+    return loss_var, coef, weight, numerator, sub_var
+
 def train(args, vs, alpha_bar, order, m_arr, f_name):
-    model = model_generate(alpha_bar, args.gpu_ids, args.device)
+    model = model_generate(alpha_bar, args.lp, args.gpu_ids, args.device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
     model.train()
     start_time = time.time()
