@@ -16,7 +16,6 @@ class NoiseScheduleVP2:
             continuous_beta_1=20.,
             dtype=torch.float32,
             predefined_aap=None,
-            predefined_ts=None,
     ):
         """Create a wrapper class for the forward SDE (VP type).
 
@@ -112,21 +111,24 @@ class NoiseScheduleVP2:
             self.log_alpha_array = log_alphas.reshape((1, -1,)).to(dtype=dtype)
         elif schedule == 'predefined':
             self.alphas_cumprod = alphas_cumprod
-            aap, ts = predefined_aap, predefined_ts
+            aap = predefined_aap
             self.predefined_aap_cnt = len(aap)
             aap.insert(0, 0.9999)
-            ts.insert(0, 0)
             self.predefined_aap = torch.tensor(aap)  # predefined alpha accumulated product
-            self.predefined_ts = torch.tensor(ts)    # predefined timesteps
+            if betas is not None:
+                log_alphas = 0.5 * torch.log(1 - betas).cumsum(dim=0)
+            else:
+                assert alphas_cumprod is not None
+                log_alphas = 0.5 * torch.log(alphas_cumprod)
+            self.total_N = len(log_alphas)
             self.T = 1.
+            self.t_array = torch.linspace(0., 1., self.total_N + 1)[1:].reshape((1, -1)).to(dtype=dtype)
+            self.t_reverse_array = torch.flip(self.t_array, dims=(1,))
+            self.log_alpha_array = log_alphas.reshape((1, -1,)).to(dtype=dtype)
             f2s = lambda arr: ' '.join([f"{f:8.6f}" for f in arr])
-            i2s = lambda arr: ' '.join([f"{i: 8d}" for i in arr])
             log_fn(f"  predefined_aap     : {len(self.predefined_aap)}")
             log_fn(f"  predefined_aap[:5] : [{f2s(self.predefined_aap[:5])}]")
             log_fn(f"  predefined_aap[-5:]: [{f2s(self.predefined_aap[-5:])}]")
-            log_fn(f"  predefined_ts      : {len(self.predefined_ts)}")
-            log_fn(f"  predefined_ts[:5]  : [{i2s(self.predefined_ts[:5])}]")
-            log_fn(f"  predefined_ts[-5:] : [{i2s(self.predefined_ts[-5:])}]")
             log_fn(f"  T                  : {self.T}")
         else:
             self.total_N = 1000
@@ -145,8 +147,16 @@ class NoiseScheduleVP2:
                 self.T = 1.
 
     def to(self, device):
-        self.predefined_aap = self.predefined_aap.to(device)
-        self.predefined_ts = self.predefined_ts.to(device)
+        self.predefined_aap  = self.predefined_aap.to(device)
+        self.log_alpha_array = self.log_alpha_array.to(device)
+        self.t_array         = self.t_array.to(device)
+        self.t_reverse_array = self.t_reverse_array.to(device)
+
+    def aap_idx_to_ts(self, idx):
+        alpha_bar = self.predefined_aap.index_select(0, idx)
+        log_alpha_t = 0.5 * torch.log(alpha_bar)
+        ts = interpolate_fn(log_alpha_t.reshape((-1, 1)), self.log_alpha_array, self.t_reverse_array)
+        return ts
 
     def _marginal_log_mean_coeff(self, t):
         """

@@ -110,7 +110,7 @@ def model_wrapper(
         For discrete-time DPMs, we convert `t_continuous` in [1 / N, 1] to `t_input` in [0, 1000 * (N - 1) / N].
         For continuous-time DPMs, we just use `t_continuous`.
         """
-        if noise_schedule.schedule == 'discrete':
+        if noise_schedule.schedule in ['discrete', 'predefined']:
             return (t_continuous - 1. / noise_schedule.total_N) * 1000.
         else:
             return t_continuous
@@ -275,7 +275,8 @@ class DPM_Solver:
         Return the noise prediction model.
         """
         if self.skip_type == 'predefined':
-            t = self.noise_schedule.predefined_ts.index_select(0, t)
+            t = self.noise_schedule.aap_idx_to_ts(t)  # shape (1, 1)
+            t = t.squeeze(0)
         return self.model(x, t)
 
     def data_prediction_fn(self, x, t):
@@ -590,8 +591,9 @@ class DPM_Solver:
         h = lambda_t - lambda_s
         if self.skip_type == 'predefined':
             delta = t - s
-            s1 = (s + delta * r1).long()
-            s2 = (s + delta * r2).long()
+            assert abs(delta) == 3, f"delta should be 3. t:{t}, s:{s}"
+            s1 = (s + delta / 3).long()
+            s2 = (t - delta / 3).long()
         else:
             lambda_s1 = lambda_s + r1 * h
             lambda_s2 = lambda_s + r2 * h
@@ -659,10 +661,7 @@ class DPM_Solver:
             if model_s is None:
                 model_s = self.model_fn(x, s)
             if model_s1 is None:
-                x_s1 = (
-                    (torch.exp(log_alpha_s1 - log_alpha_s)) * x
-                    - (sigma_s1 * phi_11) * model_s
-                )
+                x_s1 = (torch.exp(log_alpha_s1 - log_alpha_s)) * x - (sigma_s1 * phi_11) * model_s
                 model_s1 = self.model_fn(x_s1, s1)
             x_s2 = (
                 (torch.exp(log_alpha_s2 - log_alpha_s)) * x

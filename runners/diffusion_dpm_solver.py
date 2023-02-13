@@ -170,6 +170,7 @@ class DiffusionDpmSolver(Diffusion):
         logging.info(f"  steps_arr: {steps_arr}")
         logging.info(f"  skip_arr : {skip_arr}")
         logging.info(f"  times    : {times}")
+        o_dir = './output7_vividvar'
         for order in order_arr:
             self.order = order
             for steps in steps_arr:
@@ -178,6 +179,7 @@ class DiffusionDpmSolver(Diffusion):
                     self.skip_type = skip_type
                     self.sample()
                     f_path = f"dpm_alphaBar_{order}-{steps:03d}-{skip_type}.txt"
+                    f_path = os.path.join(o_dir, f_path)
                     save_ab_file(f_path)
                     logging.info(f"File saved: {f_path}")
                 # for
@@ -249,39 +251,13 @@ class DiffusionDpmSolver(Diffusion):
             # for r_idx
         # with
 
-    def save_noise_schedule_data(self, aap_file, noise_schedule):
-        f_path = f"./noise_schedule_predefined_ts.txt"
-        logging.info(f"Saving file: {f_path}")
-        with open(f_path, 'w') as f_ptr:
-            f_ptr.write(f"# noise_schedule: {type(noise_schedule).__name__}\n")
-            f_ptr.write(f"# aap_file: {aap_file}\n")
-            f_ptr.write(f"# aap: alpha accumulated product\n")
-            f_ptr.write(f"# aap   \ttimestep\n")
-            aap = noise_schedule.predefined_aap
-            ts = noise_schedule.predefined_ts
-            for i in range(len(aap)):
-                f_ptr.write(f"{aap[i]:8.6f}\t{ts[i]: 4d}\n")
-            # for
-        # with
-        f_path = f"./noise_schedule_predefined_aap.txt"
-        logging.info(f"Saving file: {f_path}")
-        with open(f_path, 'w') as f_ptr:
-            f_ptr.write(f"# noise_schedule: {type(noise_schedule).__name__}\n")
-            f_ptr.write(f"# beta_schedule: {self.beta_schedule}\n")
-            f_ptr.write(f"# aap_file: {aap_file}\n")
-            f_ptr.write(f"# aap: alpha accumulated product\n")
-            aap = noise_schedule.alphas_cumprod
-            for i in range(len(aap)):
-                f_ptr.write(f"{aap[i]:8.6f}\n")
-            # for
-        # with
-
     @staticmethod
     def load_predefined_aap(f_path: str, meta_dict=None):
         if not os.path.exists(f_path):
             raise Exception(f"File not found: {f_path}")
         if not os.path.isfile(f_path):
             raise Exception(f"Not file: {f_path}")
+        logging.info(f"  Load file: {f_path}")
         with open(f_path, 'r') as f_ptr:
             lines = f_ptr.readlines()
         cnt_empty = 0
@@ -344,10 +320,8 @@ class DiffusionDpmSolver(Diffusion):
             self.skip_type = 'predefined'  # hard code here.
             noise_schedule = NoiseScheduleVP2(schedule='predefined',
                                               alphas_cumprod=self.alphas_cumprod,
-                                              predefined_aap=aap,
-                                              predefined_ts=ts)
+                                              predefined_aap=aap)
             noise_schedule.to(device)
-            # self.save_noise_schedule_data(aap_file, noise_schedule)
         elif aap_file:
             meta_dict = {'order': '', 'steps': ''}
             aap, ts = self.load_predefined_aap(aap_file, meta_dict)
@@ -361,8 +335,7 @@ class DiffusionDpmSolver(Diffusion):
             self.skip_type = 'predefined'  # hard code here.
             noise_schedule = NoiseScheduleVP2(schedule='predefined',
                                               alphas_cumprod=self.alphas_cumprod,
-                                              predefined_aap=aap,
-                                              predefined_ts=ts)
+                                              predefined_aap=aap)
             noise_schedule.to(device)
         else:
             noise_schedule = NoiseScheduleVP2(schedule='discrete', alphas_cumprod=self.alphas_cumprod)
