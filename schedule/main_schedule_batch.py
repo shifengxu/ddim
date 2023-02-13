@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--todo', type=str, default='train')
     parser.add_argument("--n_epochs", type=int, default=1000)
     parser.add_argument('--log_interval', type=int, default=200)
-    parser.add_argument('--lr', type=float, default=0.0001)
+    parser.add_argument('--lr', type=float, default=0.000001)
     parser.add_argument('--lp', type=float, default=0.01, help='learning_portion')
     parser.add_argument('--output_dir', type=str, default='./output7_vividvar')
     parser.add_argument('--alpha_bar_dir', type=str, default='./exp/dpm_alphaBar')
@@ -341,7 +341,7 @@ def train(args, vs, alpha_bar, order, m_arr, f_name):
         loss_min = torch.square(aa_min - args.aa_low) * args.aa_low_lambda
         loss = torch.add(loss_var, loss_min)
         loss.backward()
-        # model.gradient_clip()
+        model.gradient_clip()
         optimizer.step()
         if e_idx % args.log_interval == 0 or e_idx == e_cnt - 1:
             elp, eta = utils.get_time_ttl_and_eta(start_time, e_idx, e_cnt)
