@@ -279,10 +279,10 @@ def calc_loss_order3_v2(aacum, weight_arr):
         wt3 += wtu # append series 3 into series 1.
     elif a_cnt % 3 == 1:
         # if a_cnt is 10, then index will be 0 ~ 9.
-        idx_a = list(range(0, a_cnt, 3))  # [0, 3, 6, 9]
-        idx_w = list(range(0, a_cnt, 3))  # [0, 3, 6, 9] weight series 1
-        idx_v = list(range(1, a_cnt, 3))  # [   1, 4, 7] weight series 2
-        idx_u = list(range(2, a_cnt, 3))  # [   2, 5, 8] weight series 3
+        idx_a = [0, 1, 2, 3] + list(range(6, a_cnt, 3)) # [0, 1, 2, 3, 6, 9]
+        idx_w = [0, 1, 2, 3] + list(range(6, a_cnt, 3)) # [0, 1, 2, 3, 6, 9] weight series 1
+        idx_v = list(range(4, a_cnt, 3))                # [            4, 7] weight series 2
+        idx_u = list(range(5, a_cnt, 3))                # [            5, 8] weight series 3
         idx_a = torch.tensor(idx_a, dtype=torch.long, device=aacum.device)
         idx_w = torch.tensor(idx_w, dtype=torch.long, device=aacum.device)
         idx_v = torch.tensor(idx_v, dtype=torch.long, device=aacum.device)
@@ -291,7 +291,7 @@ def calc_loss_order3_v2(aacum, weight_arr):
         wt3 = torch.index_select(weight_arr, dim=0, index=idx_w)  # new weight
         wtv = torch.index_select(weight_arr, dim=0, index=idx_v)
         wtu = torch.index_select(weight_arr, dim=0, index=idx_u)
-        wt3[1:] += (wt3[1:] + wtv + wtu) / 3 # append series 2 & 3 into series 1.
+        wt3[4:] += wtv + wtu # append series 2 & 3 into series 1.
     else: # a_cnt % 3 == 2
         # If a_cnt is 11, then the index will be 0 ~ 10
         idx_a = list(range(1, a_cnt, 3))        # [1, 4, 7, 10]

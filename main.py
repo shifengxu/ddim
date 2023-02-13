@@ -58,6 +58,7 @@ def parse_args_and_config():
                         help="Verbose level: info | debug | warning | critical")
     parser.add_argument("--todo", type=str, default='dpmSolver', help="train|sample|psample|lsample")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
+    parser.add_argument("--dpm_order", type=int, default=0)
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
     parser.add_argument("--sample_ckpt_path_x0", type=str, default='./output3_sampleByPhase/ckpt_E1000_x0.pth')

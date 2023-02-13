@@ -330,9 +330,11 @@ class DiffusionDpmSolver(Diffusion):
             if meta_dict['steps'] != f"{len(aap)}":
                 raise Exception(f"steps not match between comment and real data: {aap_file}."
                                 f" {meta_dict['steps']} != {len(aap)}")
-            if meta_dict['order'] == '':
-                raise Exception(f"Not found order info from file: {aap_file}")
-            self.order = int(meta_dict['order'])
+            if self.args.dpm_order:
+                self.order = self.args.dpm_order
+            else:
+                if meta_dict['order'] == '': raise Exception(f"Not found order from: {aap_file}")
+                self.order = int(meta_dict['order'])
             self.steps = len(aap)
             self.skip_type = 'predefined'  # hard code here.
             noise_schedule = NoiseScheduleVP2(schedule='predefined',
