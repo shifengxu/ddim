@@ -55,7 +55,7 @@ def parse_args_and_config():
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
-    parser.add_argument("--todo", type=str, default='dpmSolver', help="train|sample|psample|lsample")
+    parser.add_argument("--todo", type=str, default='sample', help="train|sample|psample|lsample")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
