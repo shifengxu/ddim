@@ -17,7 +17,7 @@ import torchvision.utils as tvu
 
 class DiffusionDpmSolver(Diffusion):
     def __init__(self, args, config, device=None):
-        super().__init__(args, config, device)
+        super().__init__(args, config, device, output_ab=False)
         self.sample_count = 50000    # sample image count
         self.dpm_solver = None
         self.noise_schedule = None
@@ -26,6 +26,7 @@ class DiffusionDpmSolver(Diffusion):
         self.order = 3
         self.steps = 20
         self.skip_type = 'time_uniform'
+        self.alpha_bar_all_flag = False
 
     def save_images(self, config, x, time_start, r_idx, n_rounds, b_sz):
         x = inverse_data_transform(config, x)
@@ -136,7 +137,7 @@ class DiffusionDpmSolver(Diffusion):
             fid_avg = self.sample_times(times)
             fid_dict[f_path] = fid_avg
             logging.info(f"fid_avg: {f_path}: {fid_avg:8.5f}")
-            f_path = os.path.join(sum_dir, './sample_all_scheduled_fid.txt')
+            f_path = os.path.join(sum_dir, 'sample_all_scheduled_fid.txt')
             logging.info(f"Save file: {f_path}")
             with open(f_path, 'w') as f_ptr:
                 for key in sorted(fid_dict):
@@ -159,6 +160,7 @@ class DiffusionDpmSolver(Diffusion):
                 [f_ptr.write(f"{ab_map[k]}\n") for k in ab_list]
             # with
         # def
+        self.alpha_bar_all_flag = True
         args = self.args
         args.predefined_aap_file = ""
         args.sample_count = 5  # sample is not purpose. So make it small
@@ -319,6 +321,7 @@ class DiffusionDpmSolver(Diffusion):
             self.skip_type = 'predefined'  # hard code here.
             noise_schedule = NoiseScheduleVP2(schedule='predefined',
                                               alphas_cumprod=self.alphas_cumprod,
+                                              predefined_ts=ts,
                                               predefined_aap=aap)
             noise_schedule.to(device)
         elif aap_file:
@@ -336,12 +339,13 @@ class DiffusionDpmSolver(Diffusion):
             self.skip_type = 'predefined'  # hard code here.
             noise_schedule = NoiseScheduleVP2(schedule='predefined',
                                               alphas_cumprod=self.alphas_cumprod,
+                                              predefined_ts=ts,
                                               predefined_aap=aap)
             noise_schedule.to(device)
         else:
             noise_schedule = NoiseScheduleVP2(schedule='discrete', alphas_cumprod=self.alphas_cumprod)
-        if self.args.todo.endswith('alpha_bar_all'):
-            noise_schedule.alpha_bar_map = {}  # only init it for specific args.todo
+        if self.alpha_bar_all_flag:
+            noise_schedule.alpha_bar_map = {}  # only init it for specific args.
 
         # 2. Convert your discrete-time `model` to the continuous-time
         # noise prediction model. Here is an example for a diffusion model
@@ -358,7 +362,10 @@ class DiffusionDpmSolver(Diffusion):
         # You can adjust the `steps` to balance the computation
         # costs and the sample quality.
         if aap_file:
-            dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type="predefined")
+            dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver",
+                                    skip_type="predefined",
+                                    use_predefined_ts=self.args.use_predefined_ts,
+                                    ts_int_flag=self.args.ts_int_flag)
         else:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type=self.skip_type)
 

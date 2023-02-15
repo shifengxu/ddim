@@ -110,7 +110,7 @@ def model_wrapper(
         For discrete-time DPMs, we convert `t_continuous` in [1 / N, 1] to `t_input` in [0, 1000 * (N - 1) / N].
         For continuous-time DPMs, we just use `t_continuous`.
         """
-        if noise_schedule.schedule in ['discrete', 'predefined']:
+        if noise_schedule.schedule in ['discrete']:
             return (t_continuous - 1. / noise_schedule.total_N) * 1000.
         else:
             return t_continuous
@@ -183,6 +183,8 @@ class DPM_Solver:
         correcting_xt_fn=None,
         thresholding_max_val=1.,
         dynamic_thresholding_ratio=0.995,
+        use_predefined_ts=False,
+        ts_int_flag=False,
     ):
         """Construct a DPM-Solver. 
 
@@ -253,11 +255,15 @@ class DPM_Solver:
         self.correcting_xt_fn = correcting_xt_fn
         self.dynamic_thresholding_ratio = dynamic_thresholding_ratio
         self.thresholding_max_val = thresholding_max_val
+        self.use_predefined_ts    = use_predefined_ts
+        self.ts_int_flag          = ts_int_flag
         log_fn(f"DPM_Solver()")
         log_fn(f"  skip_type                 : {self.skip_type}")
         log_fn(f"  algorithm_type            : {self.algorithm_type}")
         log_fn(f"  thresholding_max_val      : {self.thresholding_max_val}")
         log_fn(f"  dynamic_thresholding_ratio: {self.dynamic_thresholding_ratio}")
+        log_fn(f"  use_predefined_ts         : {self.use_predefined_ts}")
+        log_fn(f"  ts_int_flag               : {self.ts_int_flag}")
 
     def dynamic_thresholding_fn(self, x0, t):
         """
@@ -275,8 +281,13 @@ class DPM_Solver:
         Return the noise prediction model.
         """
         if self.skip_type == 'predefined':
-            t = self.noise_schedule.aap_idx_to_ts(t)  # shape (1, 1)
-            t = t.squeeze(0)
+            if self.use_predefined_ts:
+                t = self.noise_schedule.predefined_ts.index_select(0, t)
+            else:
+                t = self.noise_schedule.aap_idx_to_ts(t)  # shape (1, 1)
+                t = t.squeeze(0)
+                t = (t - 1. / self.noise_schedule.total_N) * 1000.
+                if self.ts_int_flag: t = t.long()
         return self.model(x, t)
 
     def data_prediction_fn(self, x, t):

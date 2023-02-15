@@ -67,20 +67,21 @@ def output_arr(name, arr):
 
 
 class Diffusion(object):
-    def __init__(self, args, config, device=None):
+    def __init__(self, args, config, device=None, output_ab=True):
         self.args = args
         self.config = config
         if device is None:
             device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.device = device
         self.model_var_type = config.model.var_type
+        self.output_ab = output_ab
         logging.info(f"Diffusion() ========================")
 
         self.beta_schedule = args.beta_schedule or config.diffusion.beta_schedule
         self.alphas, self.alphas_cumprod, self.betas = self.get_alphas_and_betas(config)
-        output_arr('betas', self.betas)
-        output_arr('alphas', self.alphas)
-        output_arr('alphas_cumprod', self.alphas_cumprod)
+        if self.output_ab: output_arr('betas', self.betas)
+        if self.output_ab: output_arr('alphas', self.alphas)
+        if self.output_ab: output_arr('alphas_cumprod', self.alphas_cumprod)
         # define alpha_cumprod[t-1]. this will be used when sampling images.
         # denote the above variable: alphas_cumproq
         arr = [torch.ones(1).to(self.device), self.alphas_cumprod[:-1]]
@@ -163,7 +164,7 @@ class Diffusion(object):
             sq_root = torch.from_numpy(sq_root).float().to(device)
             if expo != 1.0:
                 sq_root = torch.pow(sq_root, expo)
-            output_arr(self.beta_schedule, sq_root)
+            if self.output_ab: output_arr(self.beta_schedule, sq_root)
             sq = torch.mul(sq_root, sq_root)
             alphas_cumprod = 1 - sq
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
@@ -181,7 +182,7 @@ class Diffusion(object):
             sq_root = torch.from_numpy(sq_root).float().to(device)
             if expo != 1.0:
                 sq_root = torch.pow(sq_root, expo)
-            output_arr(self.beta_schedule, sq_root)
+            if self.output_ab: output_arr(self.beta_schedule, sq_root)
             alphas_cumprod = torch.mul(sq_root, sq_root)
             divisor = torch.cat([torch.ones(1).to(device), alphas_cumprod[:-1]], dim=0)
             alphas = torch.div(alphas_cumprod, divisor)

@@ -10,7 +10,6 @@ import numpy as np
 import torch.utils.tensorboard as tb
 import torch.backends.cudnn as cudnn
 
-from runners.diffusion_dpm_solver import DiffusionDpmSolver
 from runners.diffusion_lostats import DiffusionLostats
 from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_sampling0 import DiffusionSampling0
@@ -58,7 +57,6 @@ def parse_args_and_config():
                         help="Verbose level: info | debug | warning | critical")
     parser.add_argument("--todo", type=str, default='dpmSolver', help="train|sample|psample|lsample")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
-    parser.add_argument("--dpm_order", type=int, default=0)
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
     parser.add_argument("--sample_ckpt_path_x0", type=str, default='./output3_sampleByPhase/ckpt_E1000_x0.pth')
@@ -66,10 +64,6 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_dir", type=str, default='./exp/model_S4E1000TSxxx')
     parser.add_argument("--sample_batch_size", type=int, default=1000, help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="exp/image_sampled")
-    # parser.add_argument("--predefined_aap_file", type=str, default="./output7_vividvar/res_aacum_0020.txt")
-    # parser.add_argument("--predefined_aap_file", type=str, default="geometric_ratio:1.07")
-    # parser.add_argument("--predefined_aap_file", type=str, default="all_scheduled_dir:./exp/dpm_alphaBar.scheduled")
-    parser.add_argument("--predefined_aap_file", type=str, default="")
     parser.add_argument('--psample_ts_list', nargs='+', type=int, help='0 means x0',
                         default=[50, 150, 250, 350, 450, 550, 650, 750, 850, 950, 0, 1000])
     parser.add_argument('--psample_dir', type=str, default="./exp/partialSample")
@@ -263,26 +257,6 @@ def main():
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionSamplingByPhase(args, config, device=config.device)
             runner.sample()
-        elif args.todo == 'dpmSolver':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
-            runner.sample()
-        elif args.todo == 'dpmSolver.ratios':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
-            runner.sample_ratios()
-        elif args.todo == 'dpmSolver.all':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
-            runner.sample_all()
-        elif args.todo == 'dpmSolver.all_scheduled':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
-            runner.sample_all_scheduled()
-        elif args.todo == 'dpmSolver.alpha_bar_all':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
-            runner.alpha_bar_all()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     except RuntimeError:
