@@ -183,10 +183,10 @@ def schedule_and_sample(args, config):
 def output_ssr_list(ssr_list, f_path):
     log_fn(f"Save file: {f_path}")
     with open(f_path, 'w') as f_ptr:
-        f_ptr.write(f"# FID_base=>   FID    : lp   :ts_int: calo: key                 : notes\n")
+        f_ptr.write(f"# FID_base=>   FID    : lp    :ts_int: calo: key                 : notes\n")
         for ssr in ssr_list:
             ssc = ssr.ssc
-            f_ptr.write(f"{ssr.fid_base:9.5f} => {ssr.fid:9.5f}: {ssc.lp:.3f}: "
+            f_ptr.write(f"{ssr.fid_base:9.5f} => {ssr.fid:9.5f}: {ssc.lp:.4f}: "
                         f"{'True ' if ssc.ts_int_flag else 'False'}: "
                         f"{ssc.calo:4d}: {ssr.key.ljust(20)}: {ssr.notes}\n")
         # for

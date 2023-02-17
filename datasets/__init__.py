@@ -4,6 +4,8 @@ import numbers
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from torchvision.datasets import CIFAR10, ImageFolder
+
+from datasets.ImageDataset import ImageDataset
 from datasets.celeba import CelebA
 from datasets.ffhq_latent import FFHQ_Latent
 from datasets.ffhq import FFHQ
@@ -65,6 +67,7 @@ def get_dataset(args, config):
             test_dataset = ImageFolder(root=args.test_data_dir, transform=test_transform)
         else:
             test_dataset = dataset
+
     elif config.data.dataset == "FFHQ_Latent":
         dataset = FFHQ_Latent(root=args.data_dir)
         if args.test_per_epoch > 0:
@@ -159,6 +162,28 @@ def get_dataset(args, config):
                     transforms.ToTensor(),
                 ]
             ),
+        )
+
+    elif config.data.dataset == "LSUN2":
+        train_folder = "{}_train".format(config.data.category)
+        val_folder = "{}_val".format(config.data.category)
+        if config.data.random_flip:
+            dataset = ImageDataset(
+                root=os.path.join(args.data_dir, "datasets", "lsun"),
+                classes=[train_folder],
+                transform=transforms.Compose([transforms.RandomHorizontalFlip(p=0.5),transforms.ToTensor()]),
+            )
+        else:
+            dataset = ImageDataset(
+                root=os.path.join(args.data_dir, "datasets", "lsun"),
+                classes=[train_folder],
+                transform=transforms.Compose([transforms.ToTensor()]),
+            )
+
+        test_dataset = ImageDataset(
+            root=os.path.join(args.data_dir, "datasets", "lsun"),
+            classes=[val_folder],
+            transform=transforms.Compose([transforms.ToTensor()]),
         )
 
     elif config.data.dataset == "FFHQ":

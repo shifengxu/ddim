@@ -16,16 +16,16 @@ import torchvision.utils as tvu
 
 
 class DiffusionDpmSolver(Diffusion):
-    def __init__(self, args, config, device=None):
+    def __init__(self, args, config, order=1, steps=20, skip_type='time_uniform', device=None):
         super().__init__(args, config, device, output_ab=False)
         self.sample_count = 50000    # sample image count
         self.dpm_solver = None
         self.noise_schedule = None
         self.t_start = None
         self.t_end = None
-        self.order = 3
-        self.steps = 20
-        self.skip_type = 'time_uniform'
+        self.order = order
+        self.steps = steps
+        self.skip_type = skip_type
         self.alpha_bar_all_flag = False
 
     def save_images(self, config, x, time_start, r_idx, n_rounds, b_sz):

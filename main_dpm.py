@@ -87,6 +87,16 @@ def parse_args_and_config():
 
     return args, new_config
 
+def dpm_sample(args, config):
+    for order in args.order_arr:
+        for steps in args.steps_arr:
+            for skip_type in args.skip_type_arr:
+                runner = DiffusionDpmSolver(args, config, order=order, steps=steps,
+                                            skip_type=skip_type, device=config.device)
+                runner.sample()
+            # for
+        # for
+    # for
 
 def main():
     args, config = parse_args_and_config()
@@ -97,8 +107,7 @@ def main():
     try:
         if args.todo == 'sample':
             logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
-            runner.sample()
+            dpm_sample(args, config)
         elif args.todo == 'dpmSolver.ratios':
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionDpmSolver(args, config, device=config.device)

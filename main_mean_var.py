@@ -81,6 +81,74 @@ def main():
     # for
     return 0
 
+def aggregate_files():
+    """"""
+    import os
+    import random
+    import torchvision.transforms as transforms
+    import torchvision.utils as tvu
+    from PIL import Image
+
+    def iterate(folder, f_arr):
+        for item in os.listdir(folder):
+            path = os.path.join(folder, item)
+            if os.path.isdir(path):
+                iterate(path, f_arr)
+            else:
+                f_arr.append(path)
+        # for
+    # def end
+    dir_root = './exp/datasets/lsun/bedroom'
+    dir_arr = []
+    iterate(dir_root, dir_arr)
+    f_cnt = len(dir_arr)
+    log_fn(f"dir_root   : {dir_root}")
+    log_fn(f"found files: {f_cnt}")
+    idx_list = list(range(f_cnt))
+    random.shuffle(idx_list)
+
+    transform = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(), ])
+
+    cfg_list = [
+        ['./exp/datasets/lsun/bedroom_val', 10000,
+         './exp/datasets/lsun/bedroom_val_10k.ini'],
+        ['./exp/datasets/lsun/bedroom_train', 50000,
+         './exp/datasets/lsun/bedroom_train_50k.ini'],
+        ['./exp/datasets/lsun/bedroom2_train', 50000,
+         './exp/datasets/lsun/bedroom2_train_50k.ini'],
+        ['./exp/datasets/lsun/bedroom3_train', 50000,
+         './exp/datasets/lsun/bedroom3_train_50k.ini'],
+        ['./exp/datasets/lsun/bedroom_test', 10000,
+         './exp/datasets/lsun/bedroom_test_10k.ini'],
+        ['./exp/datasets/lsun/bedroom_01k', 1000,
+         './exp/datasets/lsun/bedroom_01k.ini'],
+    ]
+    start_idx = 0
+    for dir_target, cnt, log_file in cfg_list:
+        log_fn(f"to generate:{cnt}, start_idx:{start_idx}, dir_target:{dir_target} *************")
+        if not os.path.exists(dir_target):
+            log_fn(f"os.makedirs({dir_target})")
+            os.makedirs(dir_target)
+        with open(log_file, 'w') as f_ptr:
+            for i in range(cnt):
+                idx = idx_list[i+start_idx]
+                old_f_path = dir_arr[idx]
+                new_f_name = f"{i:05d}.png"
+                new_f_path = os.path.join(dir_target, new_f_name)
+                msg = f"{new_f_name} <= {idx:6d} {old_f_path}"
+                f_ptr.write(msg+"\n")
+                if i % 200 == 0 or i == cnt - 1:
+                    log_fn(msg)
+                image = Image.open(old_f_path).convert("RGB")
+                image = transform(image)
+                tvu.save_image(image, new_f_path)
+            # for
+        # with
+        start_idx += cnt
+    # for
 
 if __name__ == "__main__":
-    main()
+    # main()
+    aggregate_files()

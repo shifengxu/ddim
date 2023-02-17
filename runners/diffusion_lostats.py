@@ -95,8 +95,6 @@ class DiffusionLostats(Diffusion):
 
     def run(self):
         """Focus on MSE of epsilon"""
-        if self.args:  # todo: meaningful switch
-            return self.run_xt()
         _, test_loader = self.get_data_loaders()
         model = self.get_model()
         model.eval()
