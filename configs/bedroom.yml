@@ -1,5 +1,5 @@
 data:
-    dataset: "LSUN"
+    dataset: "LSUN2"
     category: "bedroom"
     image_size: 256
     channels: 3

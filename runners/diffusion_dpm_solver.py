@@ -1,3 +1,4 @@
+import datetime
 import os
 import time
 import logging
@@ -79,36 +80,44 @@ class DiffusionDpmSolver(Diffusion):
             # with
         # while
 
-    def sample_all(self):
+    def sample_all(self, order_arr=None, steps_arr=None, skip_arr=None, times=5):
+        def save_result(_msg_arr, _fid_arr):
+            with open('./sample_all_result.txt', 'w') as f_ptr:
+                [f_ptr.write(f"# {m}\n") for m in _msg_arr]
+                [f_ptr.write(f"[{d}] {f:8.5f}: {k}\n") for d, f, k in _fid_arr]
+            # with
+        # end of inner def
         args = self.args
         args.predefined_aap_file = ""
         logging.info(f"DiffusionDpmSolver::sample_all()")
         logging.info(f"  args.predefined_aap_file: '{args.predefined_aap_file}'")
-        order_arr = [1, 2, 3]
-        steps_arr = [10, 15, 20, 25, 50, 100]
-        skip_arr = ['time_uniform', 'logSNR', 'time_quadratic']
-        times = 5
-        logging.info(f"  order_arr: {order_arr}")
-        logging.info(f"  steps_arr: {steps_arr}")
-        logging.info(f"  skip_arr : {skip_arr}")
-        logging.info(f"  times    : {times}")
-        fid_dict = {}
-        for order in order_arr:
-            self.order = order
-            for steps in steps_arr:
-                self.steps = steps
+        order_arr = order_arr or [1, 2, 3]
+        steps_arr = steps_arr or [10, 15, 20, 25, 50, 100]
+        skip_arr  = skip_arr or ['time_uniform', 'logSNR', 'time_quadratic']
+        msg_arr = [f"order_arr : {order_arr}",
+                   f"steps_arr : {steps_arr}",
+                   f"skip_arr  : {skip_arr}",
+                   f"times     : {times}",
+                   f"fid_input1: {args.fid_input1}"]
+        [logging.info(f"  {m}") for m in msg_arr]
+        fid_arr = []
+        for steps in steps_arr:
+            self.steps = steps
+            for order in order_arr:
+                self.order = order
                 for skip_type in skip_arr:
                     self.skip_type = skip_type
                     fid_avg = self.sample_times(times)
+                    dtstr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     key = f"{order}-{steps}-{skip_type}"
-                    fid_dict[key] = fid_avg
+                    fid_arr.append([dtstr, fid_avg, key])
                     logging.info(f"fid_avg: {key}: {fid_avg:8.5f}")
+                    save_result(msg_arr, fid_arr)
                 # for
             # for
         # for
-        logging.info(f"fid_dict:")
-        for key in sorted(fid_dict):
-            logging.info(f"  {key}: {fid_dict[key]:8.5f}")
+        logging.info(f"fid_list:")
+        [logging.info(f"{fid:8.5f}: {key}") for dtstr, fid, key in fid_arr]
 
     def sample_all_scheduled(self):
         args = self.args
@@ -198,10 +207,15 @@ class DiffusionDpmSolver(Diffusion):
         fid_arr = []
         for i in range(times):
             self.sample()
-            logging.info(f"Calculating FID...")
+            order, steps, skip_type = self.order, self.steps, self.skip_type
+            ss = args.predefined_aap_file if skip_type == 'predefined' else f"{order}-{steps}-{skip_type}"
+            input1, input2 = args.fid_input1 or 'cifar10-train', args.sample_output_dir
+            logging.info(f"{ss}-{i} => FID calculating...")
+            logging.info(f"  input1: {input1}")
+            logging.info(f"  input2: {input2}")
             metrics_dict = torch_fidelity.calculate_metrics(
-                input1='cifar10-train',
-                input2=args.sample_output_dir,
+                input1=input1,
+                input2=input2,
                 cuda=True,
                 isc=False,
                 fid=True,
@@ -210,8 +224,6 @@ class DiffusionDpmSolver(Diffusion):
                 samples_find_deep=True,
             )
             fid = metrics_dict['frechet_inception_distance']
-            order, steps, skip_type = self.order, self.steps, self.skip_type
-            ss = args.predefined_aap_file if skip_type == 'predefined' else f"{order}-{steps}-{skip_type}"
             logging.info(f"{ss}-{i} => FID: {fid:.6f}")
             fid_arr.append(fid)
         # for
