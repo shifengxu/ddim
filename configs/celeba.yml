@@ -1,5 +1,5 @@
 data:
-    dataset: "CELEBA"
+    dataset: "CELEBA2"
     image_size: 64
     channels: 3
     logit_transform: false

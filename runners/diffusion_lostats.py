@@ -95,13 +95,13 @@ class DiffusionLostats(Diffusion):
 
     def run(self):
         """Focus on MSE of epsilon"""
-        _, test_loader = self.get_data_loaders()
+        train_loader, test_loader = self.get_data_loaders()
         model = self.get_model()
         model.eval()
 
         jump = self.args.timesteps
         h_cnt = 1000 // jump        # hit count
-        b_cnt = len(test_loader)    # batch count
+        b_cnt = len(train_loader)   # batch count
         hb_cnt = h_cnt * b_cnt      # hit * batch
         b_sz = self.args.batch_size or self.config.training.batch_size
         dmu_ttl_arr = [0.] * 1000  # mean
@@ -118,7 +118,7 @@ class DiffusionLostats(Diffusion):
         logging.info(f"b_sz   : {b_sz}")
         logging.info(f"hb_cnt : {hb_cnt}")
         with torch.no_grad():
-            for b_idx, (x, y) in enumerate(test_loader):
+            for b_idx, (x, y) in enumerate(train_loader):
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
                 b_sz = x.size(0)

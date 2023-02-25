@@ -123,6 +123,26 @@ def get_dataset(args, config):
             download=True,
         )
 
+    elif config.data.dataset == "CELEBA2":
+        if config.data.random_flip:
+            tf_arr = [transforms.RandomHorizontalFlip(), transforms.ToTensor()]
+        else:
+            tf_arr = [transforms.ToTensor()]
+        dataset = CelebA(
+            root=os.path.join(args.data_dir, "datasets", "celeba200K"),
+            split="train",
+            transform=transforms.Compose(tf_arr),
+            check_integrity=False,
+            download=True,
+        )
+        test_dataset = CelebA(
+            root=os.path.join(args.data_dir, "datasets", "celeba200K"),
+            split="test",
+            transform=transforms.Compose([transforms.ToTensor()]),
+            check_integrity=False,
+            download=True,
+        )
+
     elif config.data.dataset == "LSUN":
         train_folder = "{}_train".format(config.data.category)
         val_folder = "{}_val".format(config.data.category)

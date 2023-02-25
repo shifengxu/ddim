@@ -50,7 +50,9 @@ class CelebA(VisionDataset):
     def __init__(self, root,
                  split="train",
                  target_type="attr",
-                 transform=None, target_transform=None,
+                 transform=None,
+                 target_transform=None,
+                 check_integrity=True,
                  download=False):
         import pandas
         super(CelebA, self).__init__(root)
@@ -61,6 +63,7 @@ class CelebA(VisionDataset):
             self.target_type = [target_type]
         self.transform = transform
         self.target_transform = target_transform
+        self.check_integrity = check_integrity
 
         if download:
             self.download()
@@ -107,6 +110,8 @@ class CelebA(VisionDataset):
         self.attr = torch.div(self.attr, 2, rounding_mode='floor')
 
     def _check_integrity(self):
+        if not self.check_integrity:
+            return True
         for (_, md5, filename) in self.file_list:
             fpath = os.path.join(self.root, self.base_folder, filename)
             _, ext = os.path.splitext(filename)

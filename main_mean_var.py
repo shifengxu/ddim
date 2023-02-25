@@ -149,6 +149,40 @@ def aggregate_files():
         start_idx += cnt
     # for
 
+def resize_images():
+    """"""
+    import os
+    import random
+    import torchvision.transforms as transforms
+    import torchvision.utils as tvu
+    from PIL import Image
+    dir_in  = './exp/datasets/celeba/celeba/img_align_celeba_ori'
+    dir_out = './exp/datasets/celeba/celeba/img_align_celeba'
+    fname_lst = os.listdir(dir_in)
+    fname_lst.sort()
+    f_cnt = len(fname_lst)
+    log_fn(f"dir_in     : {dir_in}")
+    log_fn(f"dir_out    : {dir_out}")
+    log_fn(f"found files: {f_cnt}")
+
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),
+        transforms.ToTensor(), ])
+    if not os.path.exists(dir_out):
+        log_fn(f"os.makedirs({dir_out})")
+        os.makedirs(dir_out)
+    for idx, fname in enumerate(fname_lst):
+        fpath_in  = os.path.join(dir_in, fname)
+        nm, ext = os.path.splitext(fname)
+        fpath_out = os.path.join(dir_out, f"{nm}.png")
+        if idx % 1000 == 0 or idx + 1 == f_cnt:
+            log_fn(f"{fpath_in} -> {fpath_out}")
+        image = Image.open(fpath_in).convert("RGB")
+        image = transform(image)
+        tvu.save_image(image, fpath_out)
+    # for
+
 if __name__ == "__main__":
     # main()
-    aggregate_files()
+    # aggregate_files()
+    resize_images()
