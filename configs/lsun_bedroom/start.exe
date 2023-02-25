@@ -1,0 +1,89 @@
+#!/bin/bash
+
+set -e
+gpu_ids="7 6 3 2"
+d_dd="./code_ddim"
+beta_schedule=linear
+config=$d_dd/configs/bedroom.yml
+ckpt_path="../exp/ema-lsun-bedroom-model-2388000.ckpt"
+steps_arr="10 15 20 25 50 100"
+order_arr="1 2 3"
+skip_type_arr="logSNR time_quadratic time_uniform"
+ab_ori_dir="./phase1_ab_original"
+ab_sch_dir="./phase2_ab_scheduled"
+ab_sum_dir="./phase3_ab_summary"
+
+weight_file=./res_eps_mse_arr.txt
+lr=0.000004
+lp=0.01
+
+sample_bs=160
+sample_count=50000
+ts_int_flag=False
+pre_ts=False
+#ab_file="geometric_ratio:1"
+#ab_file="all_scheduled_dir:../exp/dpm_alphaBar.scheduled"
+#ab_file="../exp/dpm_alphaBar.scheduled/abDetail_dpm_alphaBar_1-010-time_uniform.txt"
+ab_file="all_scheduled_dir:$ab_sch_dir"
+ss_plan_file=./vubo_ss_plan.txt
+fid_base_file=""
+repeat_times=1
+
+mkdir -p $d_dd
+cp -rf ../albar		$d_dd
+cp -rf ../configs 	$d_dd
+cp -rf ../datasets 	$d_dd
+cp -rf ../functions	$d_dd
+cp -rf ../models	$d_dd
+cp -rf ../runners	$d_dd
+cp -rf ../schedule	$d_dd
+cp     ../*.py		$d_dd
+
+: <<'CCCCC'
+pyshifeng -u $d_dd/main_schedule_sample.py	\
+	--todo alpha_bar_all			\
+	--steps_arr $steps_arr			\
+	--order_arr $order_arr			\
+	--skip_type_arr $skip_type_arr		\
+	--ab_original_dir $ab_ori_dir		\
+	--ab_scheduled_dir $ab_sch_dir		\
+	--config $config			\
+	--seed 0				\
+	--beta_schedule $beta_schedule		\
+	--sample_batch_size 1			\
+	--sample_count      1			\
+	--sample_ckpt_path $ckpt_path		\
+	--sample_output_dir ./generated		\
+	--gpu_ids $gpu_ids
+CCCCC
+
+: <<'CCCCC'
+CCCCC
+echo $'\n\n'
+pyshifeng -u $d_dd/main_schedule_sample.py	\
+	--todo schedule_sample			\
+	--config $config			\
+	--seed 0				\
+	--n_epochs 1000				\
+	--log_interval 200			\
+	--lr $lr				\
+	--lp $lp				\
+	--ab_original_dir  $ab_ori_dir		\
+	--ab_scheduled_dir $ab_sch_dir		\
+	--ab_summary_dir   $ab_sum_dir		\
+	--aa_low 0.0001				\
+	--aa_low_lambda 10000000		\
+	--weight_file $weight_file		\
+	--dpm_order 0				\
+	--predefined_aap_file "$ab_file"	\
+	--ss_plan_file $ss_plan_file		\
+	--fid_base_file "$fid_base_file"	\
+	--repeat_times $repeat_times		\
+	--ts_int_flag $ts_int_flag		\
+	--beta_schedule $beta_schedule		\
+	--sample_batch_size $sample_bs		\
+	--sample_ckpt_path $ckpt_path		\
+	--sample_output_dir ./generated		\
+	--sample_count $sample_count		\
+	--gpu_ids $gpu_ids
+
