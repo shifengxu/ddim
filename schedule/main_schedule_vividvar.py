@@ -35,13 +35,12 @@ def parse_args():
     parser.add_argument("--n_epochs", type=int, default=500000)
     parser.add_argument('--log_interval', type=int, default=2000)
     parser.add_argument('--lr', type=float, default=0.000001)
-    parser.add_argument('--output_dir', type=str, default='./output7_schedule1')
+    parser.add_argument('--output_dir', type=str, default='./output7_vividvar')
     parser.add_argument('--aa_low', type=float, default=0.0001, help="Alpha Accum lower bound")
     parser.add_argument("--aa_low_lambda", type=float, default=10000000)
-    parser.add_argument("--weight_file", type=str, default='./output7_schedule1/weight_loss.txt')
+    parser.add_argument("--weight_file", type=str, default='./output7_vividvar/res_mse_avg_list.txt')
     parser.add_argument("--load_ckpt_path", type=str, default='')
     parser.add_argument("--beta_schedule", type=str, default="linear")
-    parser.add_argument("--beta_count", type=int, default=20)
     parser.add_argument("--vs_mode", type=str, default="vivid", help='var_simulator mode: vivid|static')
     args = parser.parse_args()
 
@@ -181,7 +180,6 @@ def main():
              f"aa_low  : {args.aa_low}",
              f"aa_low_lambda: {args.aa_low_lambda}",
              f"beta_schedule: {args.beta_schedule}",
-             f"beta_count   : {args.beta_count}",
              f"torch.seed() : {torch.seed()}"]  # message array
     [log_fn(m) for m in m_arr]
     model.train()
@@ -229,20 +227,18 @@ def status_save(args, alpha, aacum, index, weight_arr, el_str):
     o_dir = args.output_dir
     fig.savefig(os.path.join(o_dir, f"et_vividvar.png"))
     plt.close()
-    bc = f"_{args.beta_count:04d}"
     combo = []
     for i in range(len(aacum)):
         combo.append("{:8.6f}: {:3d}".format(aacum[i], index[i]))
     m_arr = list(el_str) if el_str is list else [el_str]
     m_arr.append('')
     m_arr.append('aacum : timestep')
-    utils.save_list(combo, '', os.path.join(o_dir, f"et_aacum{bc}.txt"), msg=m_arr, fmt="{}")
-    utils.save_list(alpha, '', os.path.join(o_dir, f"et_alpha{bc}.txt"), msg=el_str)
-    utils.save_list(std_d, '', os.path.join(o_dir, f"et_std_d{bc}.txt"), msg=el_str)
+    utils.save_list(combo, '', os.path.join(o_dir, f"et_aacum.txt"), msg=m_arr, fmt="{}")
+    utils.save_list(alpha, '', os.path.join(o_dir, f"et_alpha.txt"), msg=el_str)
+    utils.save_list(std_d, '', os.path.join(o_dir, f"et_std_d.txt"), msg=el_str)
 
 def detail_save(args, alpha, aacum, idx_arr, new_weight_arr, loss_var, coef, numerator, sub_var, m_arr):
     o_dir = args.output_dir
-    bc = f"_{args.beta_count:04d}.txt"
     combo = []
     for i in range(len(aacum)):
         s = f"{aacum[i]:8.6f}: {idx_arr[i]:3d}: {alpha[i]:8.6f};" \
@@ -251,7 +247,7 @@ def detail_save(args, alpha, aacum, idx_arr, new_weight_arr, loss_var, coef, num
         combo.append(s)
     m_arr.append(f"loss_var: {loss_var:10.6f}")
     m_arr.append('aacum : ts : alpha   ; coef    * weight   =numerator; numerator/aacum   =sub_var')
-    utils.save_list(combo, '', os.path.join(o_dir, f"et_detail{bc}"), msg=m_arr, fmt="{}")
+    utils.save_list(combo, '', os.path.join(o_dir, f"et_detail.txt"), msg=m_arr, fmt="{}")
 
 if __name__ == "__main__":
     sys.exit(main())

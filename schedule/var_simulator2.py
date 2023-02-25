@@ -3,7 +3,7 @@ import math
 import torch
 from torch import Tensor
 
-from base import ScheduleBase
+from schedule.base import ScheduleBase
 from utils import log_info
 
 

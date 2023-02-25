@@ -9,7 +9,7 @@ import torch.backends.cudnn as cudnn
 
 import utils
 from runners.diffusion_dpm_solver import DiffusionDpmSolver
-from schedule.main_schedule_batch import ScheduleBatch
+from schedule.schedule_batch import ScheduleBatch
 from utils import str2bool, dict2namespace
 
 log_fn = utils.log_info
@@ -70,6 +70,7 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
     parser.add_argument("--sample_batch_size", type=int, default=50, help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="./output7_vividvar/generated")
+    parser.add_argument("--fid_input1", type=str, default="./exp/datasets/lsun/bedroom_train")
     # parser.add_argument("--predefined_aap_file", type=str, default="./output7_vividvar/res_aacum_0020.txt")
     # parser.add_argument("--predefined_aap_file", type=str, default="geometric_ratio:1.07")
     # parser.add_argument("--predefined_aap_file", type=str, default="all_scheduled_dir:./exp/dpm_alphaBar.scheduled")
@@ -146,9 +147,11 @@ def schedule_and_sample(args, config):
     file_list = [os.path.join(ab_dir, f) for f in file_list]
     file_list = [f for f in file_list if os.path.isfile(f)]
     f_cnt = len(file_list)
-    log_fn(f"  ab_original_dir : {args.ab_original_dir}")
-    log_fn(f"  ab_scheduled_dir: {args.ab_scheduled_dir}")
-    log_fn(f"  ab file cnt     : {f_cnt}")
+    log_fn(f"  ab_original_dir  : {args.ab_original_dir}")
+    log_fn(f"  ab_scheduled_dir : {args.ab_scheduled_dir}")
+    log_fn(f"  ab file cnt      : {f_cnt}")
+    log_fn(f"  sample_output_dir: {args.sample_output_dir}")
+    log_fn(f"  fid_input1       : {args.fid_input1}")
     run_hist = []  # running history
     fid_best = []  # best FID for each key
     for idx, f_path in enumerate(sorted(file_list)):
@@ -158,7 +161,7 @@ def schedule_and_sample(args, config):
         key = tmp.split('.')[0]                 # 1-010-time_quadratic
         ssc_arr = plan_map.get(key, plan_map['default'])
         ssr_best = None
-        fid_base = fid_base_map[key]
+        fid_base = fid_base_map.get(key, 0.)
         for ssc in ssc_arr:
             scheduled_file = sb.schedule_single(f_path, args.lr, ssc.lp, order=ssc.calo)
             args.predefined_aap_file = scheduled_file
@@ -244,6 +247,9 @@ def load_plans_from_file(f_path):
 
 def load_fid_from_file(f_path):
     log_fn(f"load_fid_from_file(): {f_path}")
+    if f_path is None or f_path == '':
+        log_fn(f"  !!! fid_file empty. Will use 0.0 by default.")
+        return {}
     with open(f_path, 'r') as f:
         lines = f.readlines()
     cnt_empty = 0

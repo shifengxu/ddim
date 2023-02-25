@@ -107,6 +107,10 @@ def main():
         if args.todo == 'sample':
             logging.info(f"{args.todo} ===================================")
             dpm_sample(args, config)
+        elif args.todo == 'dpmSolver':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionDpmSolver(args, config, device=config.device)
+            runner.sample()
         elif args.todo == 'dpmSolver.ratios':
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionDpmSolver(args, config, device=config.device)
