@@ -240,7 +240,7 @@ class DiffusionTraining(Diffusion):
                     if self.args.fivar_coef:
                         loss, xt = self.fivar_coef_loss(x, t, e)
                     else:
-                        loss, xt = noise_estimation_loss2(self.model, x, t, e, self.alphas_cumprod)
+                        loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
                     loss_ttl += loss.item()
                     loss_cnt += 1
                 # for loader
