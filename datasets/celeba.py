@@ -53,6 +53,7 @@ class CelebA(VisionDataset):
                  transform=None,
                  target_transform=None,
                  check_integrity=True,
+                 file_limit=0,
                  download=False):
         import pandas
         super(CelebA, self).__init__(root)
@@ -102,6 +103,7 @@ class CelebA(VisionDataset):
 
         mask = (splits[1] == split)
         self.filename = splits[mask].index.values
+        if file_limit > 0: self.filename = self.filename[0:file_limit]
         self.identity = torch.as_tensor(self.identity[mask].values)
         self.bbox = torch.as_tensor(self.bbox[mask].values)
         self.landmarks_align = torch.as_tensor(self.landmarks_align[mask].values)
@@ -162,7 +164,7 @@ class CelebA(VisionDataset):
         return X, target
 
     def __len__(self):
-        return len(self.attr)
+        return len(self.filename)
 
     def extra_repr(self):
         lines = ["Target type: {target_type}", "Split: {split}"]

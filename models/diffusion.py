@@ -191,7 +191,7 @@ class AttnBlock(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, config, in_channels=0, out_channels=0, resolution=0):
+    def __init__(self, config, in_channels=0, out_channels=0, resolution=0, ts_type='discrete'):
         super().__init__()
         self.config = config
         ch, ch_mult = config.model.ch, tuple(config.model.ch_mult)
@@ -211,6 +211,10 @@ class Model(nn.Module):
         self.ch_mult_len = len(ch_mult)
         self.num_res_blocks = config.model.num_res_blocks
         self.resolution = resolution
+        if ts_type in ['discrete', 'continuous']:
+            self.ts_type = ts_type
+        else:
+            raise ValueError(f"Unknown ts_type: {ts_type}")
         self.in_channels = in_channels
 
         # timestep embedding
@@ -302,6 +306,10 @@ class Model(nn.Module):
 
     def forward(self, x, t):
         assert x.shape[2] == x.shape[3] == self.resolution  # config.data.image_size
+
+        if self.ts_type == 'continuous':
+            t *= 1000.
+        # if
 
         # timestep embedding
         # self.ch: config.model.ch. Usually 128

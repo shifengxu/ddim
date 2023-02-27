@@ -87,6 +87,10 @@ class Diffusion(object):
         arr = [torch.ones(1).to(self.device), self.alphas_cumprod[:-1]]
         self.alphas_cumproq = torch.cat(arr, dim=0)
         self.num_timesteps = self.betas.shape[0]
+        self.t_array  = torch.linspace(0., 0.999, 1000, dtype=torch.float32, device=device).reshape((1, -1))
+        self.a_array  = self.alphas.reshape((1, -1))
+        self.ab_array = self.alphas_cumprod.reshape((1, -1))
+        self.aq_array = self.alphas_cumproq.reshape((1, -1))
         ts_range = args.ts_range
         if len(ts_range) == 0:
             ts_range = [0, self.num_timesteps]
@@ -334,6 +338,10 @@ class Diffusion(object):
         else:
             key = 'model' if isinstance(states, dict) else 0
             model.load_state_dict(states[key], strict=True)
+            ckpt_tt = states.get('ts_type', 'discrete')
+            model_tt = model.ts_type
+            if ckpt_tt != model_tt:
+                raise ValueError(f"ts_type not match. ckpt_tt={ckpt_tt}, model_tt={model_tt}")
             if self.args.ema_flag:
                 logging.info(f"  ema_helper: EMAHelper(mu={self.args.ema_rate})")
                 ema_helper = EMAHelper(mu=self.args.ema_rate)

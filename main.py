@@ -16,6 +16,7 @@ from runners.diffusion_sampling0 import DiffusionSampling0
 from runners.diffusion_sampling2 import DiffusionSampling2
 from runners.diffusion_samplingPrev import DiffusionSamplingPrev
 from runners.diffusion_samplingByPhase import DiffusionSamplingByPhase
+from runners.diffusion_sampling_conti import DiffusionSamplingContinuous
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
@@ -23,6 +24,7 @@ from runners.diffusion_latent_sampling import DiffusionLatentSampling
 from runners.diffusion_training0 import DiffusionTraining0
 from runners.diffusion_training2 import DiffusionTraining2
 from runners.diffusion_trainingPrev import DiffusionTrainingPrev
+from runners.diffusion_training_conti import DiffusionTrainingContinuous
 
 from utils import str2bool, dict2namespace
 
@@ -56,6 +58,8 @@ def parse_args_and_config():
     parser.add_argument("--verbose", type=str, default="info",
                         help="Verbose level: info | debug | warning | critical")
     parser.add_argument("--todo", type=str, default='sample', help="train|sample|psample|lsample")
+    parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
+    parser.add_argument("--train_ds_limit", type=int, default=0, help="training dataset limit")
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
@@ -215,7 +219,12 @@ def main():
             runner.sample()
         elif args.todo == 'sample':
             logging.info(f"sample ===================================")
-            runner = DiffusionSampling(args, config, device=config.device)
+            if args.ts_type == 'continuous':
+                runner = DiffusionSamplingContinuous(args, config, device=config.device)
+            elif args.ts_type == 'discrete':
+                runner = DiffusionSampling(args, config, device=config.device)
+            else:
+                raise ValueError(f"Unknown args.ts_type: {args.ts_type}")
             runner.sample()
         elif args.todo == 'test':
             logging.info(f"test ===================================")
@@ -223,8 +232,14 @@ def main():
             runner.test()
         elif args.todo == 'train':
             logging.info(f"train ===================================")
-            runner = DiffusionTraining(args, config, device=config.device)
-            runner.train()
+            if args.ts_type == 'continuous':
+                runner = DiffusionTrainingContinuous(args, config, device=config.device)
+                runner.train()
+            elif args.ts_type == 'discrete':
+                runner = DiffusionTraining(args, config, device=config.device)
+                runner.train()
+            else:
+                raise ValueError(f"Unknown args.ts_type: {args.ts_type}")
         elif args.todo == 'train2':
             logging.info(f"train2 ===================================")
             runner = DiffusionTraining2(args, config, device=config.device)

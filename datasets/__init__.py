@@ -134,6 +134,7 @@ def get_dataset(args, config):
             transform=transforms.Compose(tf_arr),
             check_integrity=False,
             download=True,
+            file_limit=args.train_ds_limit,
         )
         test_dataset = CelebA(
             root=os.path.join(args.data_dir, "datasets", "celeba200K"),
