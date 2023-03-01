@@ -113,9 +113,10 @@ class DiffusionTrainingContinuous(Diffusion):
             logging.info(f"resume_ckpt    : {ckpt_path}")
             states = torch.load(ckpt_path, map_location=self.device)
             start_epoch = self.load_model(states)
-        logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
-        self.model = torch.nn.DataParallel(self.model, device_ids=args.gpu_ids)
-        self.m_ema = torch.nn.DataParallel(self.m_ema, device_ids=args.gpu_ids)
+        if len(args.gpu_ids) > 1:
+            logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
+            self.model = torch.nn.DataParallel(self.model, device_ids=args.gpu_ids)
+            self.m_ema = torch.nn.DataParallel(self.m_ema, device_ids=args.gpu_ids)
         cudnn.benchmark = True
         return e_cnt, start_epoch
 
@@ -162,7 +163,7 @@ class DiffusionTrainingContinuous(Diffusion):
             logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f} . ema_cnt:{ema_cnt}")
             loss_avg_arr.append(loss_avg)
             # self.scheduler.step()
-            if epoch % 100 == 0 or epoch == e_cnt - 1:
+            if epoch % 50 == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
             if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
                 self.test_and_save_result(epoch, test_loader)
@@ -210,6 +211,7 @@ class DiffusionTrainingContinuous(Diffusion):
                         t = ts_arr[i]
                     else:
                         t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+                        t = t.float() / 1000.
                         ts_arr.append(t)
                     loss, xt = self.noise_estimation(model, x, t, e)
                     loss_ttl += loss.item()
@@ -284,8 +286,10 @@ class DiffusionTrainingContinuous(Diffusion):
         logging.info(f"  resume scheduler  : lr={self.scheduler.get_last_lr()[0]:8.6f}")
         logging.info(f"  resume start_epoch: {start_epoch}")
         if self.ema_flag:
-            self.ema_helper.load_state_dict(states['ema_helper'])
             logging.info(f"  resume ema_helper : mu={self.ema_helper.mu:8.6f}")
+            self.ema_helper.load_state_dict(states['ema_helper'])
+            logging.info(f"  ema_helper: apply to self.m_ema")
+            self.ema_helper.ema(self.m_ema)
         return start_epoch
 
     def save_model(self, e_idx):

@@ -308,7 +308,7 @@ class Model(nn.Module):
         assert x.shape[2] == x.shape[3] == self.resolution  # config.data.image_size
 
         if self.ts_type == 'continuous':
-            t *= 1000.
+            t = t.clone() * 1000.  # if t *= 1000., it will affect t itself.
         # if
 
         # timestep embedding
