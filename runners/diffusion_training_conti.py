@@ -8,7 +8,6 @@ from torch.backends import cudnn
 import utils
 from datasets import get_dataset, data_transform
 from functions import get_optimizer
-from functions.losses import noise_estimation_loss2
 from models.diffusion import Model
 from models.ema import EMAHelper
 from runners.diffusion import Diffusion
@@ -212,7 +211,7 @@ class DiffusionTrainingContinuous(Diffusion):
                     else:
                         t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
                         ts_arr.append(t)
-                    loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
+                    loss, xt = self.noise_estimation(model, x, t, e)
                     loss_ttl += loss.item()
                     loss_cnt += 1
                 # for loader
