@@ -2,6 +2,7 @@ import torch
 import utils
 
 log_fn = utils.log_info
+_batch_idx = -1
 
 def model_wrapper(
     model,
@@ -117,6 +118,9 @@ def model_wrapper(
 
     def noise_pred_fn(x, t_continuous, cond=None):
         t_input = get_model_input_time(t_continuous)
+        if _batch_idx == 0:
+            tmp = t_input[0] if len(t_input.shape) > 0 else t_input
+            log_fn(f"noise_prediction_fn(): {noise_schedule.schedule}. t={tmp:9.5f}")
         if cond is None:
             output = model(x, t_input, **model_kwargs)
         else:
@@ -965,7 +969,7 @@ class DPM_Solver:
 
     def sample(self, x, steps=20, t_start=None, t_end=None, order=2,
         method='multistep', lower_order_final=True, denoise_to_zero=False, solver_type='dpmsolver',
-        atol=0.0078, rtol=0.05, return_intermediate=False,
+        atol=0.0078, rtol=0.05, return_intermediate=False, batch_idx=-1,
     ):
         """
         Compute the sample at time `t_end` by DPM-Solver, given the initial `x` at time `t_start`.
@@ -1070,11 +1074,14 @@ class DPM_Solver:
             rtol: A `float`. The relative tolerance of the adaptive step size solver. Valid when `method` == 'adaptive'.
             return_intermediate: A `bool`. Whether to save the xt at each step.
                 When set to `True`, method returns a tuple (x0, intermediates); when set to False, method returns only x0.
+            batch_idx: batch index
         Returns:
             x_end: A pytorch tensor. The approximated solution at time `t_end`.
 
         """
         skip_type = self.skip_type
+        global _batch_idx
+        _batch_idx = batch_idx  # this is a tricky way to use batch_idx
         if not hasattr(self, '_log_sample'):
             setattr(self, '_log_sample', True)
             log_fn(f"{type(self).__name__}::sample()")
@@ -1083,6 +1090,7 @@ class DPM_Solver:
             log_fn(f" skip_type : {skip_type}")
             log_fn(f" t_start   : {t_start}")
             log_fn(f" t_end     : {t_end}")
+            log_fn(f" _batch_idx: {_batch_idx}")
         if skip_type == 'predefined':
             t_0, t_T = 0, steps
         else:

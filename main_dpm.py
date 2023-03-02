@@ -21,7 +21,7 @@ def parse_args_and_config():
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--log_interval", type=int, default=10)
-    parser.add_argument("--todo", type=str, default='alpha_bar_all')
+    parser.add_argument("--todo", type=str, default='dpmSolver')
     parser.add_argument("--repeat_times", type=int, default=5, help='run XX times to get avg FID')
     parser.add_argument("--dpm_order", type=int, default=0, help='force DPM order to be XX. 0 means ignore.')
     parser.add_argument("--ts_int_flag", type=str2bool, default=False, help='timestep change to int type')
@@ -86,17 +86,6 @@ def parse_args_and_config():
 
     return args, new_config
 
-def dpm_sample(args, config):
-    for order in args.order_arr:
-        for steps in args.steps_arr:
-            for skip_type in args.skip_type_arr:
-                runner = DiffusionDpmSolver(args, config, order=order, steps=steps,
-                                            skip_type=skip_type, device=config.device)
-                runner.sample()
-            # for
-        # for
-    # for
-
 def main():
     args, config = parse_args_and_config()
     logging.info(f"pid : {os.getpid()}")
@@ -104,12 +93,10 @@ def main():
     logging.info(f"args: {args}")
 
     try:
-        if args.todo == 'sample':
+        if args.todo == 'sample' or args.todo == 'dpmSolver':
             logging.info(f"{args.todo} ===================================")
-            dpm_sample(args, config)
-        elif args.todo == 'dpmSolver':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionDpmSolver(args, config, device=config.device)
+            od, st, sk = args.order_arr[0], args.steps_arr[0], args.skip_type_arr[0]
+            runner = DiffusionDpmSolver(args, config, order=od, steps=st, skip_type=sk, device=config.device)
             runner.sample()
         elif args.todo == 'dpmSolver.ratios':
             logging.info(f"{args.todo} ===================================")

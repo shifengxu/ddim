@@ -1,0 +1,38 @@
+#!/bin/bash
+
+set -e
+gpu="7 6 5 4"
+batch_size=1500
+ds_limit=50000
+beta_schedule=cosine
+d_dd="./code_ddim"
+config=$d_dd/configs/celeba.yml
+ckpt_path=../exp/ema-celeba-own-discrete-E1000.ckpt
+ema_flag=True
+
+mkdir -p $d_dd
+cp -rf ../configs 	$d_dd
+cp -rf ../datasets 	$d_dd
+cp -rf ../functions	$d_dd
+cp -rf ../models	$d_dd
+cp -rf ../runners	$d_dd
+cp -rf ../schedule	$d_dd
+cp -rf ../albar		$d_dd
+cp     ../*.py		$d_dd
+
+: <<'CCCCC'
+CCCCC
+pyshifeng -u $d_dd/main.py		\
+	--todo lostats			\
+	--timesteps 1			\
+	--config $config		\
+	--exp    $d_dd/exp		\
+	--data_dir ../exp		\
+	--batch_size $batch_size	\
+	--beta_schedule $beta_schedule	\
+	--sample_ckpt_path $ckpt_path	\
+	--train_ds_limit $ds_limit	\
+	--ema_flag $ema_flag		\
+	--seed 0			\
+	--gpu_ids $gpu
+

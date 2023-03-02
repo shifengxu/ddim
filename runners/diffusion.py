@@ -324,6 +324,16 @@ class Diffusion(object):
         return model
 
     def model_load_from_local(self, model):
+        def apply_ema():
+            logging.info(f"  ema_helper: EMAHelper()")
+            ema_helper = EMAHelper()
+            ema_helper.register(model)
+            k = "ema_helper" if isinstance(states, dict) else -1
+            logging.info(f"  ema_helper: load from states[{k}]")
+            ema_helper.load_state_dict(states[k])
+            logging.info(f"  ema_helper: apply to model {type(model).__name__}")
+            ema_helper.ema(model)
+
         if self.args.sample_ckpt_path:
             ckpt_path = self.args.sample_ckpt_path
         elif getattr(self.config.sampling, "ckpt_id", None) is None:
@@ -342,15 +352,12 @@ class Diffusion(object):
             model_tt = model.ts_type
             if ckpt_tt != model_tt:
                 raise ValueError(f"ts_type not match. ckpt_tt={ckpt_tt}, model_tt={model_tt}")
-            if self.args.ema_flag:
-                logging.info(f"  ema_helper: EMAHelper(mu={self.args.ema_rate})")
-                ema_helper = EMAHelper(mu=self.args.ema_rate)
-                ema_helper.register(model)
-                key = "ema_helper" if isinstance(states, dict) else -1
-                logging.info(f"  ema_helper: load from states[{key}]")
-                ema_helper.load_state_dict(states[key])
-                logging.info(f"  ema_helper: apply to model {type(model).__name__}")
-                ema_helper.ema(model)
+            if not hasattr(self.args, 'ema_flag'):
+                logging.info(f"  !!! Not found ema_flag in args. Assume it is true.")
+                apply_ema()
+            elif self.args.ema_flag:
+                logging.info(f"  Found args.ema_flag: {self.args.ema_flag}.")
+                apply_ema()
         # endif
 
         logging.info(f"  model({type(model).__name__}).to({self.device})")

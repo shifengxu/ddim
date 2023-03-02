@@ -259,7 +259,7 @@ class DiffusionDpmSolver(Diffusion):
                 n = b_sz if r_idx + 1 < n_rounds else self.sample_count - r_idx * b_sz
                 logging.info(f"DiffusionDpmSolver::round: {r_idx}/{n_rounds}. to generate: {n}")
                 x_t = torch.randn(n, d.channels, d.image_size, d.image_size, device=self.device)
-                x = self.sample_by_dpm_solver(x_t, dpm_solver)
+                x = self.sample_by_dpm_solver(x_t, dpm_solver, r_idx)
                 self.save_images(config, x, time_start, r_idx, n_rounds, b_sz)
             # for r_idx
         # with
@@ -388,7 +388,7 @@ class DiffusionDpmSolver(Diffusion):
         self.noise_schedule = noise_schedule
         return dpm_solver
 
-    def sample_by_dpm_solver(self, x_T, dpm_solver: DPM_Solver):
+    def sample_by_dpm_solver(self, x_T, dpm_solver: DPM_Solver, batch_idx):
         # You can use steps = 10, 12, 15, 20, 25, 50, 100.
         # Empirically, we find that steps in [10, 20] can generate quite good samples.
         # And steps = 20 can almost converge.
@@ -400,6 +400,7 @@ class DiffusionDpmSolver(Diffusion):
             method="singlestep",
             t_start=None,
             t_end=None,
+            batch_idx=batch_idx,
         )
         return x_sample
 
