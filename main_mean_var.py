@@ -182,7 +182,37 @@ def resize_images():
         tvu.save_image(image, fpath_out)
     # for
 
+def extract_model_ema_pure():
+    from models.diffusion import Model
+    from models.ema import EMAHelper
+    from utils import dict2namespace
+    import yaml
+    path_in  = "./exp/ema-celeba-own-conti-E1000.ckpt"
+    path_out = "./exp/ema-celeba-ownpure-conti-E1000.ckpt"
+    path_cfg = "./configs/celeba.yml"
+    log_fn(f"path_in : {path_in}")
+    log_fn(f"path_out: {path_out}")
+    log_fn(f"path_cfg: {path_cfg}")
+    with open(path_cfg, "r") as f:
+        config = yaml.safe_load(f)
+    config = dict2namespace(config)
+    states = torch.load(path_in, map_location='cuda:1')
+    model = Model(config)
+    model.load_state_dict(states['model'], strict=True)
+
+    log_fn(f"ema_helper: EMAHelper()")
+    ema_helper = EMAHelper()
+    ema_helper.register(model)
+    log_fn(f"ema_helper: load from states[ema_helper]")
+    ema_helper.load_state_dict(states["ema_helper"])
+    log_fn(f"ema_helper: apply to model {type(model).__name__}")
+    ema_helper.ema(model)
+
+    log_fn(f"save: {path_out}")
+    torch.save(model.state_dict(), path_out)
+
 if __name__ == "__main__":
     # main()
     # aggregate_files()
-    resize_images()
+    # resize_images()
+    extract_model_ema_pure()

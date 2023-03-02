@@ -168,6 +168,8 @@ class DiffusionTrainingContinuous(Diffusion):
             if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
                 self.test_and_save_result(epoch, test_loader)
         # for epoch
+        if self.ema_flag and e_cnt >= self.ema_start_epoch:
+            self.save_model_ema()
         utils.output_list(loss_avg_arr, 'loss_avg')
         utils.output_list(self.test_avg_arr, 'test_avg')
         utils.output_list(self.test_ema_arr, 'test_ema')
@@ -311,6 +313,16 @@ class DiffusionTrainingContinuous(Diffusion):
         logging.info(f"save ckpt dict: {fpath}")
         torch.save(states, fpath)
         fpath = os.path.join(self.args.log_path, f"ckpt_{self.ts_low:03d}-{self.ts_high:03d}.pth")
+        logging.info(f"save ckpt dict: {fpath}")
+        torch.save(states, fpath)
+
+    def save_model_ema(self):
+        self.ema_helper.ema(self.m_ema)
+        real_model = self.m_ema
+        if isinstance(real_model, torch.nn.DataParallel):
+            real_model = real_model.module
+        states = real_model.state_dict()
+        fpath = os.path.join(self.args.log_path, f"ckpt_{self.ts_low:03d}-{self.ts_high:03d}_ema.pth")
         logging.info(f"save ckpt dict: {fpath}")
         torch.save(states, fpath)
 

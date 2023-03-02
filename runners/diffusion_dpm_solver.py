@@ -235,7 +235,7 @@ class DiffusionDpmSolver(Diffusion):
 
     def sample(self):
         config, args = self.config, self.args
-        model = Model(config)
+        model = Model(config, ts_type=args.ts_type)
         model = self.model_load_from_local(model)
         model.eval()
 
@@ -355,7 +355,8 @@ class DiffusionDpmSolver(Diffusion):
                                               predefined_aap=aap)
             noise_schedule.to(device)
         else:
-            noise_schedule = NoiseScheduleVP2(schedule='discrete', alphas_cumprod=self.alphas_cumprod)
+            sch = self.args.noise_schedule
+            noise_schedule = NoiseScheduleVP2(schedule=sch, alphas_cumprod=self.alphas_cumprod)
         if self.alpha_bar_all_flag:
             noise_schedule.alpha_bar_map = {}  # only init it for specific args.
 
