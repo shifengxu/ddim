@@ -53,6 +53,7 @@ def parse_args_and_config():
     parser.add_argument("--todo", type=str, default='schedule_sample')
     parser.add_argument("--config", type=str, default='./configs/cifar10.yml')
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
+    parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--ss_plan_file", type=str, default="./output7_vividvar/vubo_ss_plan.txt")
     parser.add_argument("--fid_base_file", type=str, default="./output7_vividvar/vubo_fid_base.txt")
@@ -77,6 +78,7 @@ def parse_args_and_config():
     parser.add_argument("--predefined_aap_file", type=str, default="")
     parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
     parser.add_argument("--beta_schedule", type=str, default="linear")
+    parser.add_argument("--noise_schedule", type=str, default="cosine", help="for NoiseScheduleV2")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
     parser.add_argument("--eta", type=float, default=0.0)
 

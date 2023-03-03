@@ -84,7 +84,7 @@ class DiffusionDpmSolver(Diffusion):
         def save_result(_msg_arr, _fid_arr):
             with open('./sample_all_result.txt', 'w') as f_ptr:
                 [f_ptr.write(f"# {m}\n") for m in _msg_arr]
-                [f_ptr.write(f"[{d}] {f:8.5f}: {k}\n") for d, f, k in _fid_arr]
+                [f_ptr.write(f"[{d}] {f:8.4f}: {k}\n") for d, f, k in _fid_arr]
             # with
         # end of inner def
         args = self.args
@@ -378,6 +378,7 @@ class DiffusionDpmSolver(Diffusion):
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver",
                                     skip_type="predefined",
                                     use_predefined_ts=self.args.use_predefined_ts,
+                                    ts_type=self.args.ts_type,
                                     ts_int_flag=self.args.ts_int_flag)
         else:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type=self.skip_type)

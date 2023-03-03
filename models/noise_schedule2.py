@@ -193,6 +193,8 @@ class NoiseScheduleVP2:
             t, t_idx = t.reshape((-1)), t_idx.reshape((-1))
             if len(t) != len(t_idx): raise ValueError(f"t.len != t_idx.len. {len(t)} != {len(t_idx)}")
             alpha_bar_arr = torch.exp(log_alpha_t*2)
+            if len(alpha_bar_arr.shape) == 0:  # if log_alpha_t is 0-dimension tensor
+                alpha_bar_arr = [alpha_bar_arr]
             for i in range(len(alpha_bar_arr)):
                 ti_str = f"{t_idx[i]:04d}"
                 ab_str = f"{alpha_bar_arr[i]:.8f}"

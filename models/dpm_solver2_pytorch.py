@@ -189,6 +189,7 @@ class DPM_Solver:
         dynamic_thresholding_ratio=0.995,
         use_predefined_ts=False,
         ts_int_flag=False,
+        ts_type='discrete',
     ):
         """Construct a DPM-Solver. 
 
@@ -261,6 +262,7 @@ class DPM_Solver:
         self.thresholding_max_val = thresholding_max_val
         self.use_predefined_ts    = use_predefined_ts
         self.ts_int_flag          = ts_int_flag
+        self.ts_type              = ts_type
         log_fn(f"DPM_Solver()")
         log_fn(f"  skip_type                 : {self.skip_type}")
         log_fn(f"  algorithm_type            : {self.algorithm_type}")
@@ -268,6 +270,7 @@ class DPM_Solver:
         log_fn(f"  dynamic_thresholding_ratio: {self.dynamic_thresholding_ratio}")
         log_fn(f"  use_predefined_ts         : {self.use_predefined_ts}")
         log_fn(f"  ts_int_flag               : {self.ts_int_flag}")
+        log_fn(f"  ts_type                   : {self.ts_type}")
 
     def dynamic_thresholding_fn(self, x0, t):
         """
@@ -284,14 +287,21 @@ class DPM_Solver:
         """
         Return the noise prediction model.
         """
-        if self.skip_type == 'predefined':
+        def handle_ts(ts):
+            if self.skip_type != 'predefined':
+                return ts
             if self.use_predefined_ts:
-                t = self.noise_schedule.predefined_ts.index_select(0, t)
-            else:
-                t = self.noise_schedule.aap_idx_to_ts(t)  # shape (1, 1)
-                t = t.squeeze(0)
-                t = (t - 1. / self.noise_schedule.total_N) * 1000.
-                if self.ts_int_flag: t = t.long()
+                return self.noise_schedule.predefined_ts.index_select(0, ts)
+            ts = self.noise_schedule.aap_idx_to_ts(ts)  # shape (1, 1)
+            ts = ts.squeeze(0)
+            if self.ts_type == 'continuous': # ts range is (0, 1)
+                return ts
+            # by now the ts_type == 'discrete'
+            ts = (ts - 1. / self.noise_schedule.total_N) * 1000.
+            if self.ts_int_flag: ts = ts.long()
+            return ts
+
+        t = handle_ts(t)
         return self.model(x, t)
 
     def data_prediction_fn(self, x, t):
