@@ -13,6 +13,15 @@ class ScheduleBatch:
     def __init__(self, args):
         log_fn(f"ScheduleBatch() =======================================")
         self.wt_arr = ScheduleBase.load_floats(args.weight_file)
+        self.wt_pow = args.weight_power
+        w2s = lambda arr: " ".join([f"{w:10.5f}" for w in arr])
+        if self.wt_pow != 1.0:
+            log_fn(f"  wt_pow        : {self.wt_pow}")
+            log_fn(f"  wt_arr[:5] old: {w2s(self.wt_arr[:5])}")
+            log_fn(f"  wt_arr[-5:]old: {w2s(self.wt_arr[-5:])}")
+            self.wt_arr = self.wt_arr ** self.wt_pow
+            log_fn(f"  wt_arr[:5] new: {w2s(self.wt_arr[:5])}")
+            log_fn(f"  wt_arr[-5:]new: {w2s(self.wt_arr[-5:])}")
         self.vs = VarSimulator2(args.beta_schedule, self.wt_arr)
         self.vs.to(args.device)
         self.alpha_bar_dir  = args.alpha_bar_dir
@@ -54,7 +63,7 @@ class ScheduleBatch:
                  f"torch.seed() : {torch.seed()}"]  # message array
         [log_fn('  ' + m) for m in m_arr]
         c_arr = [f" Old comments in file {f_path}"]  # comment array
-        alpha_bar, order_, skip_type_ = self.load_floats_from_file(f_path, c_arr)
+        alpha_bar, line_arr, order_, skip_type_ = self.load_floats_from_file(f_path, c_arr)
         m_arr2 = [f"order from param    : {order}",
                   f"order from file     : {order_}",
                   f"order final         : {order or order_}",
@@ -67,9 +76,10 @@ class ScheduleBatch:
         m_arr += m_arr2
         c_arr = [c[1:].strip() for c in c_arr]  # remove prefix '#'
         alpha_bar = alpha_bar[1:]  # ignore the first one, as it is for timestep 0
+        line_arr  = line_arr[1:]
         _, idx_arr = self.vs(torch.tensor(alpha_bar, device=self.device), include_index=True)
-        s_arr = [f"{alpha_bar[i]:.8f} {idx_arr[i]:4d}" for i in range(len(alpha_bar))]
-        s_arr.insert(0, "Old alpha_bar and its timestep")
+        s_arr = [f"{line_arr[i]} : {idx_arr[i]:4d}" for i in range(len(alpha_bar))]
+        s_arr.insert(0, "Old alpha_bar and its timestep, and estimated timestep in vs")
         new_arr = c_arr + [''] + s_arr + [''] + m_arr
         f_name = os.path.basename(f_path)
         scheduled_file = self.train(alpha_bar, lr, lp, order, skip_type, new_arr, f_name)
@@ -97,6 +107,7 @@ class ScheduleBatch:
         order = None
         skip_type = None
         f_arr = []
+        s_arr = []
         for line in lines:
             line = line.strip()
             if line == '':
@@ -117,14 +128,17 @@ class ScheduleBatch:
                     else:
                         raise ValueError(f"duplicate skip_type in {f_path}")
                 continue
-            flt = float(line)
+            # old version: 0.99970543
+            # new version: 0.99970543  : 0000.00561   <<< 2nd column is timestep
+            flt = float(line.split(':')[0].strip()) if ':' in line else float(line)
             f_arr.append(flt)
+            s_arr.append(line)
         log_fn(f"  cnt_empty  : {cnt_empty}")
         log_fn(f"  cnt_comment: {cnt_comment}")
         log_fn(f"  cnt_valid  : {len(f_arr)}")
         log_fn(f"ScheduleBatch::load_floats_from_file() from file: {f_path}... Done")
         if order is None: raise ValueError(f"Not found order in {f_path}")
-        return f_arr, int(order), skip_type
+        return f_arr, s_arr, int(order), skip_type
 
     def train(self, alpha_bar, lr, lp, order, skip_type, m_arr, f_name):
         model = self.model_generate(alpha_bar, lp, self.device)

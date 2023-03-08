@@ -166,7 +166,8 @@ class DiffusionDpmSolver(Diffusion):
                 f_ptr.write(f"# steps     : {self.steps}\n")
                 f_ptr.write(f"# skip_type : {self.skip_type}\n")
                 f_ptr.write(f"# data_type : alpha_bar\n")
-                [f_ptr.write(f"{ab_map[k]}\n") for k in ab_list]
+                f_ptr.write(f"# alpha_bar : timestep\n")
+                [f_ptr.write(f"{ab_map[k][1]}  : {ab_map[k][0]}\n") for k in ab_list]
             # with
         # def
         self.alpha_bar_all_flag = True
@@ -275,8 +276,8 @@ class DiffusionDpmSolver(Diffusion):
             lines = f_ptr.readlines()
         cnt_empty = 0
         cnt_comment = 0
-        f_arr = []  # float array
-        i_arr = []  # int array
+        ab_arr = []  # alpha_bar array
+        ts_arr = []  # timestep array
         for line in lines:
             line = line.strip()
             if line == '':
@@ -289,19 +290,19 @@ class DiffusionDpmSolver(Diffusion):
                 if key in meta_dict: meta_dict[key] = arr[1].strip()
                 continue
             arr = line.split(':')
-            flt, itg = float(arr[0]), int(arr[1])
-            f_arr.append(flt)
-            i_arr.append(itg)
-        f2s = lambda ff: ' '.join([f"{f:8.6f}" for f in ff])
-        i2s = lambda ii: ' '.join([f"{i: 8d}" for i in ii])
+            ab, ts = float(arr[0]), float(arr[1])
+            ab_arr.append(ab)
+            ts_arr.append(ts)
+        ab2s = lambda ff: ' '.join([f"{f:8.6f}" for f in ff])
+        ts2s = lambda ff: ' '.join([f"{f:10.5f}" for f in ff])
         logging.info(f"    cnt_empty  : {cnt_empty}")
         logging.info(f"    cnt_comment: {cnt_comment}")
-        logging.info(f"    cnt_valid  : {len(f_arr)}")
-        logging.info(f"    float[:5]  : [{f2s(f_arr[:5])}]")
-        logging.info(f"    float[-5:] : [{f2s(f_arr[-5:])}]")
-        logging.info(f"    int[:5]    : [{i2s(i_arr[:5])}]")
-        logging.info(f"    int[-5:]   : [{i2s(i_arr[-5:])}]")
-        return f_arr, i_arr
+        logging.info(f"    cnt_valid  : {len(ab_arr)}")
+        logging.info(f"    ab[:5]     : [{ab2s(ab_arr[:5])}]")
+        logging.info(f"    ab[-5:]    : [{ab2s(ab_arr[-5:])}]")
+        logging.info(f"    ts[:5]     : [{ts2s(ts_arr[:5])}]")
+        logging.info(f"    ts[-5:]    : [{ts2s(ts_arr[-5:])}]")
+        return ab_arr, ts_arr
 
     def create_dpm_solver(self, model, device):
         # You need to firstly define your model and the extra inputs of your model,
@@ -318,8 +319,7 @@ class DiffusionDpmSolver(Diffusion):
         # betas = ....
 
         # 1. Define the noise schedule.
-        aap_file = self.args.predefined_aap_file
-        if aap_file and aap_file.startswith('geometric_ratio:'):
+        def create_ns_by_aap_geometric_ratio():
             ratio = aap_file.split(':')[1]
             ratio = float(ratio)
             series = utils.create_geometric_series(0., 999., ratio, 21)
@@ -331,31 +331,58 @@ class DiffusionDpmSolver(Diffusion):
             self.order = 1
             self.steps = len(aap)
             self.skip_type = 'predefined'  # hard code here.
-            noise_schedule = NoiseScheduleVP2(schedule='predefined',
-                                              alphas_cumprod=self.alphas_cumprod,
-                                              predefined_ts=ts,
-                                              predefined_aap=aap)
-            noise_schedule.to(device)
-        elif aap_file:
+            ns = NoiseScheduleVP2(schedule='predefined',
+                                  alphas_cumprod=self.alphas_cumprod,
+                                  predefined_ts=ts,
+                                  predefined_aap=aap)
+            return ns
+
+        def create_ns_by_aap_file():
             meta_dict = {'order': '', 'steps': ''}
             aap, ts = self.load_predefined_aap(aap_file, meta_dict)
             if meta_dict['steps'] != f"{len(aap)}":
                 raise Exception(f"steps not match between comment and real data: {aap_file}."
                                 f" {meta_dict['steps']} != {len(aap)}")
-            if self.args.dpm_order:
-                self.order = self.args.dpm_order
+            if args.dpm_order:
+                self.order = args.dpm_order
             else:
                 if meta_dict['order'] == '': raise Exception(f"Not found order from: {aap_file}")
                 self.order = int(meta_dict['order'])
             self.steps = len(aap)
             self.skip_type = 'predefined'  # hard code here.
-            noise_schedule = NoiseScheduleVP2(schedule='predefined',
-                                              alphas_cumprod=self.alphas_cumprod,
-                                              predefined_ts=ts,
-                                              predefined_aap=aap)
+            logging.info(f"  args.ty_type      : {args.ts_type}")
+            logging.info(f"  args.beta_schedule: {args.beta_schedule}")
+            if args.ts_type == 'discrete' and args.beta_schedule == 'linear':
+                aap.insert(0, 0.9999)
+                ts.insert(0, 0)
+                logging.info(f"  Insert aap[0]: {aap[0]:.5f}")
+                logging.info(f"  Insert ts[0] : {ts[0]}")
+            elif args.ts_type == 'continuous' and args.beta_schedule == 'cosine':
+                # If cosine schedule and continuous timestep. the init timestep is 0.001.
+                # And its corresponding alpha_bar value is 0.99995869
+                # see the DPM_Solver::sample() function
+                aap.insert(0, 0.99995869)
+                ts.insert(0, 0.001)
+                logging.info(f"  Insert aap[0]: {aap[0]:.8f}")
+                logging.info(f"  Insert ts[0] : {ts[0]:.5f}")
+            else:
+                raise ValueError(f"Not support: ts_type={args.ts_type}, beta_schedule={args.beta_schedule}")
+            ns = NoiseScheduleVP2(schedule='predefined',
+                                  alphas_cumprod=self.alphas_cumprod,
+                                  predefined_ts=ts,
+                                  predefined_aap=aap)
+            return ns
+
+        args = self.args
+        aap_file = args.predefined_aap_file
+        if aap_file and aap_file.startswith('geometric_ratio:'):
+            noise_schedule = create_ns_by_aap_geometric_ratio()
+            noise_schedule.to(device)
+        elif aap_file:
+            noise_schedule = create_ns_by_aap_file()
             noise_schedule.to(device)
         else:
-            sch = self.args.noise_schedule
+            sch = args.noise_schedule
             noise_schedule = NoiseScheduleVP2(schedule=sch, alphas_cumprod=self.alphas_cumprod)
         if self.alpha_bar_all_flag:
             noise_schedule.alpha_bar_map = {}  # only init it for specific args.
@@ -377,9 +404,9 @@ class DiffusionDpmSolver(Diffusion):
         if aap_file:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver",
                                     skip_type="predefined",
-                                    use_predefined_ts=self.args.use_predefined_ts,
-                                    ts_type=self.args.ts_type,
-                                    ts_int_flag=self.args.ts_int_flag)
+                                    use_predefined_ts=args.use_predefined_ts,
+                                    ts_type=args.ts_type,
+                                    ts_int_flag=args.ts_int_flag)
         else:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type=self.skip_type)
 

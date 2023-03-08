@@ -1,12 +1,12 @@
 import argparse
 import logging
+import random
 import yaml
 import sys
 import os
 import torch
 import numpy as np
 import torch.backends.cudnn as cudnn
-
 import utils
 from runners.diffusion_dpm_solver import DiffusionDpmSolver
 from schedule.schedule_batch import ScheduleBatch
@@ -50,34 +50,34 @@ class ScheduleSampleResult:
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
     # ab: alpha_bar; ss: schedule & sample
-    parser.add_argument("--todo", type=str, default='schedule_sample')
-    parser.add_argument("--config", type=str, default='./configs/cifar10.yml')
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
+    parser.add_argument("--todo", type=str, default='sample_scheduled')
+    parser.add_argument("--config", type=str, default='./configs/celeba.yml')
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
     parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
-    parser.add_argument("--ss_plan_file", type=str, default="./output7_vividvar/vubo_ss_plan.txt")
-    parser.add_argument("--fid_base_file", type=str, default="./output7_vividvar/vubo_fid_base.txt")
+    parser.add_argument("--ss_plan_file", type=str, default="./output3_vubo_celeba_conti/vubo_ss_plan.txt")
+    parser.add_argument("--fid_base_file", type=str, default="")
     parser.add_argument("--repeat_times", type=int, default=1, help='run XX times to get avg FID')
     parser.add_argument("--dpm_order", type=int, default=0, help='force DPM order to be XX. 0 means ignore.')
     parser.add_argument("--ts_int_flag", type=str2bool, default=False, help='timestep change to int type')
     parser.add_argument("--use_predefined_ts", type=str2bool, default=False)
-    parser.add_argument("--steps_arr", nargs='+', type=int, default=[10, 15, 20, 25, 50, 100])
-    parser.add_argument("--order_arr", nargs='+', type=int, default=[1, 2, 3])
-    parser.add_argument("--skip_type_arr", nargs='+', type=str, default=["logSNR", "time_quadratic", "time_uniform"])
-    parser.add_argument("--ab_original_dir", type=str, default='./output7_vividvar/phase1_ab_ori')
-    parser.add_argument("--ab_scheduled_dir", type=str, default='./output7_vividvar/phase2_ab_sch')
-    parser.add_argument("--ab_summary_dir", type=str, default='./output7_vividvar/phase3_ab_sum')
-    parser.add_argument("--sample_count", type=int, default='50', help="sample image count")
-    parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
-    parser.add_argument("--sample_batch_size", type=int, default=50, help="0 mean from config file")
-    parser.add_argument("--sample_output_dir", type=str, default="./output7_vividvar/generated")
-    parser.add_argument("--fid_input1", type=str, default="./exp/datasets/lsun/bedroom_train")
+    parser.add_argument("--steps_arr", nargs='+', type=int, default=[10])
+    parser.add_argument("--order_arr", nargs='+', type=int, default=[1])
+    parser.add_argument("--skip_type_arr", nargs='+', type=str, default=["logSNR"])
+    parser.add_argument("--ab_original_dir", type=str, default='./output3_vubo_celeba_conti/phase1_ab_original')
+    parser.add_argument("--ab_scheduled_dir", type=str, default='./output3_vubo_celeba_conti/phase2_ab_scheduled')
+    parser.add_argument("--ab_summary_dir", type=str, default='./output3_vubo_celeba_conti/phase3_ab_summary')
+    parser.add_argument("--sample_count", type=int, default='5', help="sample image count")
+    parser.add_argument("--sample_ckpt_path", type=str, default="./exp/ema-celeba-ownpure-conti-E1000.ckpt")
+    parser.add_argument("--sample_batch_size", type=int, default=5, help="0 mean from config file")
+    parser.add_argument("--sample_output_dir", type=str, default="./output3_vubo_celeba_conti/generated")
+    parser.add_argument("--fid_input1", type=str, default="./exp/datasets/celeba200K/50K")
     # parser.add_argument("--predefined_aap_file", type=str, default="./output7_vividvar/res_aacum_0020.txt")
     # parser.add_argument("--predefined_aap_file", type=str, default="geometric_ratio:1.07")
     # parser.add_argument("--predefined_aap_file", type=str, default="all_scheduled_dir:./exp/dpm_alphaBar.scheduled")
     parser.add_argument("--predefined_aap_file", type=str, default="")
     parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
-    parser.add_argument("--beta_schedule", type=str, default="linear")
+    parser.add_argument("--beta_schedule", type=str, default="cosine")
     parser.add_argument("--noise_schedule", type=str, default="cosine", help="for NoiseScheduleV2")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
     parser.add_argument("--eta", type=float, default=0.0)
@@ -89,7 +89,8 @@ def parse_args_and_config():
     parser.add_argument('--lp', type=float, default=0.01, help='learning_portion')
     parser.add_argument('--aa_low', type=float, default=0.0001, help="Alpha Accum lower bound")
     parser.add_argument("--aa_low_lambda", type=float, default=10000000)
-    parser.add_argument("--weight_file", type=str, default='./output7_vividvar/res_mse_avg_list.txt')
+    parser.add_argument("--weight_file", type=str, default='./output3_vubo_celeba_conti/res_eps_mse_arr.txt')
+    parser.add_argument("--weight_power", type=float, default=1.0, help='change the weight value')
     args = parser.parse_args()
     args.output_dir    = args.ab_scheduled_dir  # only for class ScheduleBatch
     args.alpha_bar_dir = args.ab_original_dir   # only for class ScheduleBatch
@@ -122,12 +123,16 @@ def parse_args_and_config():
     if seed:
         logging.info(f"  torch.manual_seed({seed})")
         logging.info(f"  np.random.seed({seed})")
+        logging.info(f"  random.seed({seed})")
         torch.manual_seed(seed)
         np.random.seed(seed)
+        random.seed(seed)
     if seed and torch.cuda.is_available():
+        logging.info(f"  torch.cuda.manual_seed({seed})")
         logging.info(f"  torch.cuda.manual_seed_all({seed})")
+        torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-    logging.info(f"final seed: torch.seed(): {torch.seed()}")
+    logging.info(f"final seed: torch.initial_seed(): {torch.initial_seed()}")
     cudnn.benchmark = True
     return args, new_config
 
@@ -167,6 +172,57 @@ def schedule_and_sample(args, config):
         for ssc in ssc_arr:
             scheduled_file = sb.schedule_single(f_path, args.lr, ssc.lp, order=ssc.calo)
             args.predefined_aap_file = scheduled_file
+            args.ts_int_flag = ssc.ts_int_flag
+            fid_avg = ds.sample_times(args.repeat_times)
+            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_base)
+            rt_flag = reach_target(fid_base, fid_avg, ssc.improve_target)
+            if rt_flag:
+                ssr.notes = f"reach_target({fid_base:.5f}, {fid_avg:.5f}, {ssc.improve_target})"
+                log_fn(ssr.notes)
+            run_hist.append(ssr)
+            output_ssr_list(run_hist, run_hist_file)
+            if ssr_best is None or ssr_best.fid > fid_avg:
+                ssr_best = ssr
+            if rt_flag: break
+            # if
+        # for
+        fid_best.append(ssr_best)
+        output_ssr_list(fid_best, fid_best_file)
+    # for
+
+def sample_scheduled(args, config):
+    args = args
+    ds = DiffusionDpmSolver(args, config, device=args.device)
+    log_fn(f"sample_scheduled() *********************************")
+    sch_dir = args.ab_scheduled_dir
+    sum_dir = args.ab_summary_dir
+    log_fn(f"  sch_dir: {sch_dir}")
+    log_fn(f"  sum_dir: {sum_dir}")
+    if not os.path.exists(sum_dir):
+        logging.info(f"  os.makedirs({sum_dir})")
+        os.makedirs(sum_dir)
+    run_hist_file = os.path.join(sum_dir, "ss_run_hist.txt")
+    fid_best_file = os.path.join(sum_dir, "ss_run_best.txt")
+    plan_map = load_plans_from_file(args.ss_plan_file)
+    fid_base_map = load_fid_from_file(args.fid_base_file)
+    file_list = [f for f in os.listdir(sch_dir) if 'dpm_alphaBar' in f and f.endswith('.txt')]
+    file_list = [os.path.join(sch_dir, f) for f in file_list]
+    file_list = [f for f in file_list if os.path.isfile(f)]
+    f_cnt = len(file_list)
+    log_fn(f"  ab file cnt      : {f_cnt}")
+    log_fn(f"  fid_input1       : {args.fid_input1}")
+    run_hist = []  # running history
+    fid_best = []  # best FID for each key
+    for idx, f_path in enumerate(sorted(file_list)):
+        log_fn(f"{idx:03d}/{f_cnt}: {f_path} ----------------------------------")
+        f_name = os.path.basename(f_path)  # dpm_alphaBar_1-010-time_quadratic.txt
+        tmp = f_name.split('dpm_alphaBar_')[-1] # 1-010-time_quadratic.txt
+        key = tmp.split('.')[0]                 # 1-010-time_quadratic
+        ssc_arr = plan_map.get(key, plan_map['default'])
+        ssr_best = None
+        fid_base = fid_base_map.get(key, 0.)
+        for ssc in ssc_arr:
+            args.predefined_aap_file = f_path
             args.ts_int_flag = ssc.ts_int_flag
             fid_avg = ds.sample_times(args.repeat_times)
             ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_base)
@@ -296,10 +352,15 @@ def main():
             logging.info(f"schedule_only() ===================================")
             sb = ScheduleBatch(args)
             sb.schedule_batch()
-        elif a == 'sample':
-            logging.info(f"sample_only() ===================================")
-            runner = DiffusionDpmSolver(args, config, device=args.device)
-            runner.sample_all_scheduled()
+        elif a == 'sample_scheduled':
+            logging.info(f"{a} ===================================")
+            sample_scheduled(args, config)
+        elif a == 'sample_baseline':
+            logging.info(f"{a} ===================================")
+            od, st, sk = args.order_arr[0], args.steps_arr[0], args.skip_type_arr[0]
+            runner = DiffusionDpmSolver(args, config, order=od, steps=st, skip_type=sk, device=config.device)
+            args.predefined_aap_file = ''
+            runner.sample_times(1)
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     # for

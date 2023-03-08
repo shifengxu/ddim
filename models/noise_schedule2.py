@@ -1,5 +1,3 @@
-import os
-
 import torch
 import math
 import utils
@@ -112,13 +110,8 @@ class NoiseScheduleVP2:
             self.log_alpha_array = log_alphas.reshape((1, -1,)).to(dtype=dtype)
         elif schedule == 'predefined':
             self.alphas_cumprod = alphas_cumprod
-            aap = predefined_aap
-            ts  = predefined_ts
-            self.predefined_aap_cnt = len(aap)
-            aap.insert(0, 0.9999)
-            ts.insert(0, 0)
-            self.predefined_aap = torch.tensor(aap)  # predefined alpha accumulated product
-            self.predefined_ts  = torch.tensor(ts)
+            self.predefined_aap = torch.tensor(predefined_aap)  # predefined alpha accumulated product
+            self.predefined_ts  = torch.tensor(predefined_ts)
             if betas is not None:
                 log_alphas = 0.5 * torch.log(1 - betas).cumsum(dim=0)
             else:
@@ -126,17 +119,17 @@ class NoiseScheduleVP2:
                 log_alphas = 0.5 * torch.log(alphas_cumprod)
             self.total_N = len(log_alphas)
             self.T = 1.
-            self.t_array = torch.linspace(0., 1., self.total_N + 1)[1:].reshape((1, -1)).to(dtype=dtype)
+            self.t_array = torch.linspace(0., 1., self.total_N + 1)[:-1].reshape((1, -1)).to(dtype=dtype)
             self.t_reverse_array = torch.flip(self.t_array, dims=(1,))
             self.log_alpha_array = log_alphas.reshape((1, -1,)).to(dtype=dtype)
             f2s = lambda arr: ' '.join([f"{f:8.6f}" for f in arr])
-            i2s = lambda arr: ' '.join([f"{i: 8d}" for i in arr])
+            t2s = lambda arr: ' '.join([f"{f:10.5f}" for f in arr])
             log_fn(f"  predefined_aap     : {len(self.predefined_aap)}")
             log_fn(f"  predefined_aap[:5] : [{f2s(self.predefined_aap[:5])}]")
             log_fn(f"  predefined_aap[-5:]: [{f2s(self.predefined_aap[-5:])}]")
             log_fn(f"  predefined_ts      : {len(self.predefined_ts)}")
-            log_fn(f"  predefined_ts[:5]  : [{i2s(self.predefined_ts[:5])}]")
-            log_fn(f"  predefined_ts[-5:] : [{i2s(self.predefined_ts[-5:])}]")
+            log_fn(f"  predefined_ts[:5]  : [{t2s(self.predefined_ts[:5])}]")
+            log_fn(f"  predefined_ts[-5:] : [{t2s(self.predefined_ts[-5:])}]")
             log_fn(f"  T                  : {self.T}")
         else:
             self.total_N = 1000
@@ -197,10 +190,11 @@ class NoiseScheduleVP2:
                 alpha_bar_arr = [alpha_bar_arr]
             for i in range(len(alpha_bar_arr)):
                 ti_str = f"{t_idx[i]:04d}"
+                ts_str = f"{t[i]:010.5f}"
                 ab_str = f"{alpha_bar_arr[i]:.8f}"
                 if ti_str not in self.alpha_bar_map:
-                    self.alpha_bar_map[ti_str] = ab_str
-                    log_fn(f"{type(self).__name__}::marginal_log_mean_coeff() {ti_str}: {ab_str}")
+                    self.alpha_bar_map[ti_str] = [ts_str, ab_str]
+                    log_fn(f"{type(self).__name__}::marginal_log_mean_coeff() {ti_str}: {ts_str}: {ab_str}")
             # for
         # if
         return log_alpha_t

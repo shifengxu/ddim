@@ -482,6 +482,14 @@ class DPM_Solver:
                 torch.exp(log_alpha_t - log_alpha_s) * x
                 - (sigma_t * phi_1) * model_s
             )
+            if _batch_idx == 0:
+                if len(log_alpha_t.shape) > 0:
+                    a, b, c, d = log_alpha_t[0], log_alpha_s[0], sigma_t[0], phi_1[0]
+                else:
+                    a, b, c, d = log_alpha_t, log_alpha_s, sigma_t, phi_1
+                log_fn(f"compose x_t. ts[{ts_idx[-1]:2d}]:{t:.5f}, ts[{ts_idx[0]:2d}]:{s:.5f}: "
+                       f"exp({a:.5f}-{b:.5f})*x - ({c:.5f}*{d:.5f})*model_s")
+            # if
             if return_intermediate:
                 return x_t, {'model_s': model_s}
             else:
