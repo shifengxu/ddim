@@ -89,7 +89,6 @@ pyshifeng -u $d_dd/main_schedule_sample.py	\
 	--use_predefined_ts $pre_ts		\
 	--beta_schedule $beta_schedule		\
 	--ts_type $ts_type			\
-	--alpha_bar_all_flag $ab_all_flag	\
 	--sample_batch_size $sample_bs		\
 	--sample_ckpt_path $ckpt_path		\
 	--sample_output_dir ./generated		\

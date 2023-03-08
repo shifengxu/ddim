@@ -13,17 +13,12 @@ import torch.backends.cudnn as cudnn
 from runners.diffusion_lostats import DiffusionLostats
 from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_sampling0 import DiffusionSampling0
-from runners.diffusion_sampling2 import DiffusionSampling2
-from runners.diffusion_samplingPrev import DiffusionSamplingPrev
-from runners.diffusion_samplingByPhase import DiffusionSamplingByPhase
 from runners.diffusion_sampling_conti import DiffusionSamplingContinuous
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
 from runners.diffusion_latent_sampling import DiffusionLatentSampling
 from runners.diffusion_training0 import DiffusionTraining0
-from runners.diffusion_training2 import DiffusionTraining2
-from runners.diffusion_trainingPrev import DiffusionTrainingPrev
 from runners.diffusion_training_conti import DiffusionTrainingContinuous
 
 from utils import str2bool, dict2namespace
@@ -240,14 +235,6 @@ def main():
                 runner.train()
             else:
                 raise ValueError(f"Unknown args.ts_type: {args.ts_type}")
-        elif args.todo == 'train2':
-            logging.info(f"train2 ===================================")
-            runner = DiffusionTraining2(args, config, device=config.device)
-            runner.train()
-        elif args.todo == 'sample2':
-            logging.info(f"sample2 ===================================")
-            runner = DiffusionSampling2(args, config, device=config.device)
-            runner.sample()
         elif args.todo == 'train0':
             logging.info(f"train0 ===================================")
             runner = DiffusionTraining0(args, config, device=config.device)
@@ -256,22 +243,10 @@ def main():
             logging.info(f"sample0 ===================================")
             runner = DiffusionSampling0(args, config, device=config.device)
             runner.sample()
-        elif args.todo == 'trainPrev':
-            logging.info(f"trainPrev ===================================")
-            runner = DiffusionTrainingPrev(args, config, device=config.device)
-            runner.train()
-        elif args.todo == 'samplePrev':
-            logging.info(f"samplePrev ===================================")
-            runner = DiffusionSamplingPrev(args, config, device=config.device)
-            runner.sample()
         elif args.todo.startswith('lostats'):
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionLostats(args, config, device=config.device)
             runner.run()
-        elif args.todo == 'sampleByPhase':
-            logging.info(f"{args.todo} ===================================")
-            runner = DiffusionSamplingByPhase(args, config, device=config.device)
-            runner.sample()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     except RuntimeError:

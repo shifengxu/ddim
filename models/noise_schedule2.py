@@ -188,13 +188,15 @@ class NoiseScheduleVP2:
             alpha_bar_arr = torch.exp(log_alpha_t*2)
             if len(alpha_bar_arr.shape) == 0:  # if log_alpha_t is 0-dimension tensor
                 alpha_bar_arr = [alpha_bar_arr]
+            log_key = f"{type(self).__name__}::marginal_log_mean_coeff() idx :    ts_str : ab_str"
             for i in range(len(alpha_bar_arr)):
-                ti_str = f"{t_idx[i]:04d}"
-                ts_str = f"{t[i]:010.5f}"
+                ti_str = f"{t_idx[i]: 4d}"
+                ts_str = f"{t[i]: 10.5f}"
                 ab_str = f"{alpha_bar_arr[i]:.8f}"
                 if ti_str not in self.alpha_bar_map:
                     self.alpha_bar_map[ti_str] = [ts_str, ab_str]
-                    log_fn(f"{type(self).__name__}::marginal_log_mean_coeff() {ti_str}: {ts_str}: {ab_str}")
+                    msg = f"{type(self).__name__}::marginal_log_mean_coeff() {ti_str}: {ts_str}: {ab_str}"
+                    utils.onetime_log_append(log_key, msg)
             # for
         # if
         return log_alpha_t

@@ -27,7 +27,6 @@ class DiffusionDpmSolver(Diffusion):
         self.order = order
         self.steps = steps
         self.skip_type = skip_type
-        self.alpha_bar_all_flag = False
 
     def save_images(self, config, x, time_start, r_idx, n_rounds, b_sz):
         x = inverse_data_transform(config, x)
@@ -170,10 +169,9 @@ class DiffusionDpmSolver(Diffusion):
                 [f_ptr.write(f"{ab_map[k][1]}  : {ab_map[k][0]}\n") for k in ab_list]
             # with
         # def
-        self.alpha_bar_all_flag = True
         args = self.args
         args.predefined_aap_file = ""
-        args.sample_count = 5  # sample is not purpose. So make it small
+        args.sample_count = 1  # sample is not purpose. So make it small
         logging.info(f"DiffusionDpmSolver::alpha_bar_all()")
         logging.info(f"  args.predefined_aap_file: '{args.predefined_aap_file}'")
         logging.info(f"  args.sample_count       : '{args.sample_count}'")
@@ -384,8 +382,6 @@ class DiffusionDpmSolver(Diffusion):
         else:
             sch = args.noise_schedule
             noise_schedule = NoiseScheduleVP2(schedule=sch, alphas_cumprod=self.alphas_cumprod)
-        if self.alpha_bar_all_flag:
-            noise_schedule.alpha_bar_map = {}  # only init it for specific args.
 
         # 2. Convert your discrete-time `model` to the continuous-time
         # noise prediction model. Here is an example for a diffusion model
@@ -431,6 +427,8 @@ class DiffusionDpmSolver(Diffusion):
             t_end=None,
             batch_idx=batch_idx,
         )
+        if batch_idx == 0:
+            utils.onetime_log_flush()
         return x_sample
 
 # class

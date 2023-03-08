@@ -75,7 +75,7 @@ class Diffusion(object):
         self.device = device
         self.model_var_type = config.model.var_type
         self.output_ab = output_ab
-        logging.info(f"Diffusion() ========================")
+        logging.info(f"runners.Diffusion() ========================")
 
         self.beta_schedule = args.beta_schedule or config.diffusion.beta_schedule
         self.alphas, self.alphas_cumprod, self.betas = self.get_alphas_and_betas(config)

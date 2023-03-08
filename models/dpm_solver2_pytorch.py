@@ -119,8 +119,10 @@ def model_wrapper(
     def noise_pred_fn(x, t_continuous, cond=None):
         t_input = get_model_input_time(t_continuous)
         if _batch_idx == 0:
+            tc = t_continuous[0] if len(t_continuous.shape) > 0 else t_continuous
             tmp = t_input[0] if len(t_input.shape) > 0 else t_input
-            log_fn(f"noise_prediction_fn(): {noise_schedule.schedule}. t={tmp:9.5f}")
+            k = "noise_prediction_fn(): schedule. t_input, t_continuous"
+            utils.onetime_log_append(k, f"{noise_schedule.schedule}. t_input={tmp:9.5f}, t_conti={tc:9.5f}")
         if cond is None:
             output = model(x, t_input, **model_kwargs)
         else:
@@ -487,8 +489,10 @@ class DPM_Solver:
                     a, b, c, d = log_alpha_t[0], log_alpha_s[0], sigma_t[0], phi_1[0]
                 else:
                     a, b, c, d = log_alpha_t, log_alpha_s, sigma_t, phi_1
-                log_fn(f"compose x_t. ts[{ts_idx[-1]:2d}]:{t:.5f}, ts[{ts_idx[0]:2d}]:{s:.5f}: "
-                       f"exp({a:.5f}-{b:.5f})*x - ({c:.5f}*{d:.5f})*model_s")
+                k = "compose x_t. torch.exp(log_alpha_t - log_alpha_s) * x - (sigma_t * phi_1) * model_s"
+                msg = f"compose x_t. ts_t[{ts_idx[-1]:02d}]:{t:.5f}, ts_s[{ts_idx[0]:02d}]:{s:.5f}: " \
+                      f"exp({a:.5f}-{b:.5f})*x - ({c:.5f}*{d:.5f})*model_s"
+                utils.onetime_log_append(k, msg)
             # if
             if return_intermediate:
                 return x_t, {'model_s': model_s}
@@ -1109,6 +1113,10 @@ class DPM_Solver:
             log_fn(f" t_start   : {t_start}")
             log_fn(f" t_end     : {t_end}")
             log_fn(f" _batch_idx: {_batch_idx}")
+        if _batch_idx == 0:
+            self.noise_schedule.alpha_bar_map = {}  # only init it for first batch
+        else:
+            self.noise_schedule.alpha_bar_map = None
         if skip_type == 'predefined':
             t_0, t_T = 0, steps
         else:

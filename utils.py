@@ -202,3 +202,18 @@ def linear_interpolate(x, xp, yp):
     end_y = torch.gather(y_positions_expanded, dim=2, index=(start_idx2 + 1).unsqueeze(2)).squeeze(2)
     cand = start_y + (x - start_x) * (end_y - start_y) / (end_x - start_x)
     return cand
+
+_onetime_log_map = {}
+
+def onetime_log_append(key, msg):
+    if key not in _onetime_log_map:
+        _onetime_log_map[key] = []
+    arr = _onetime_log_map[key]
+    arr.append(msg)
+
+def onetime_log_flush(log_fn=log_info):
+    for key in _onetime_log_map:
+        log_fn(key)
+        [log_fn(msg) for msg in _onetime_log_map[key]]
+    # for
+    _onetime_log_map.clear()

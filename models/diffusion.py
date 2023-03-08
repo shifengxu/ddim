@@ -216,6 +216,13 @@ class Model(nn.Module):
         else:
             raise ValueError(f"Unknown ts_type: {ts_type}")
         self.in_channels = in_channels
+        logging.info(f"models.Diffusion() ======================")
+        logging.info(f"  ch             : {self.ch}")
+        logging.info(f"  temb_ch        : {self.temb_ch}")
+        logging.info(f"  ch_mult_len    : {self.ch_mult_len}")
+        logging.info(f"  num_res_blocks : {self.num_res_blocks}")
+        logging.info(f"  resolution     : {self.resolution}")
+        logging.info(f"  ts_type        : {self.ts_type}")
 
         # timestep embedding
         self.temb = nn.Module()
