@@ -14,12 +14,14 @@ from runners.diffusion_lostats import DiffusionLostats
 from runners.diffusion_sampling import DiffusionSampling
 from runners.diffusion_sampling0 import DiffusionSampling0
 from runners.diffusion_sampling_conti import DiffusionSamplingContinuous
+from runners.diffusion_sampling_fast import DiffusionSamplingFast
 from runners.diffusion_training import DiffusionTraining
 from runners.diffusion_testing import DiffusionTesting
 from runners.diffusion_partial_sampling import DiffusionPartialSampling
 from runners.diffusion_latent_sampling import DiffusionLatentSampling
 from runners.diffusion_training0 import DiffusionTraining0
 from runners.diffusion_training_conti import DiffusionTrainingContinuous
+from runners.diffusion_training_fast import DiffusionTrainingFast
 
 from utils import str2bool, dict2namespace
 
@@ -44,6 +46,7 @@ def parse_args_and_config():
     parser.add_argument("--doc", type=str, default='doc',
                         help="A string for documentation purpose. Will be the name of the log folder.")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
+    parser.add_argument('--ab_list', nargs='+', type=float, default=[], help='alpha_bar list')
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
     parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
     parser.add_argument('--ema_start_epoch', type=int, default=50, help='EMA start epoch')
@@ -99,7 +102,7 @@ def parse_args_and_config():
     # setup logger
     logger = logging.getLogger()
     # formatter = logging.Formatter("%(levelname)s - %(filename)s - %(asctime)s - %(message)s")
-    formatter = logging.Formatter("%(asctime)s - %(message)s")
+    formatter = logging.Formatter("[%(asctime)s] %(message)s")
     handler1 = logging.StreamHandler(stream=sys.stdout)
     handler1.setFormatter(formatter)
     logger.addHandler(handler1)
@@ -242,6 +245,14 @@ def main():
         elif args.todo == 'sample0':
             logging.info(f"sample0 ===================================")
             runner = DiffusionSampling0(args, config, device=config.device)
+            runner.sample()
+        elif args.todo == 'train_fast':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionTrainingFast(args, config, device=config.device)
+            runner.train()
+        elif args.todo == 'sample_fast':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionSamplingFast(args, config, device=config.device)
             runner.sample()
         elif args.todo.startswith('lostats'):
             logging.info(f"{args.todo} ===================================")
