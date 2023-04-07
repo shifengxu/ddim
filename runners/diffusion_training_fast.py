@@ -15,8 +15,6 @@ from runners.diffusion import Diffusion
 
 import torch.utils.data as data
 
-from utils import count_parameters
-
 
 class DiffusionTrainingFast(Diffusion):
     def __init__(self, args, config, device=None):
@@ -137,6 +135,7 @@ class DiffusionTrainingFast(Diffusion):
         logging.info(f"start_epoch   : {start_epoch}")
         logging.info(f"epoch_cnt     : {e_cnt}")
         logging.info(f"test_per_epoch: {test_per_epoch}")
+        logging.info(f"save_per_epoch: {args.save_per_epoch}")
         for epoch in range(start_epoch, e_cnt):
             lr = self.scheduler.get_last_lr()[0]
             msg = f"lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}];"
@@ -159,20 +158,21 @@ class DiffusionTrainingFast(Diffusion):
 
                 if i % log_interval == 0 or i == b_cnt - 1:
                     elp, eta = utils.get_time_ttl_and_eta(data_start, (epoch-start_epoch) * b_cnt + i, eb_cnt)
-                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():8.4f}; elp:{elp}, eta:{eta}")
+                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():.8f}; elp:{elp}, eta:{eta}")
             # for loader
             loss_avg = loss_ttl / loss_cnt
-            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f} . ema_cnt:{ema_cnt}")
+            logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:.8f} . ema_cnt:{ema_cnt}")
             loss_avg_arr.append(loss_avg)
             # self.scheduler.step()
-            if epoch % 100 == 0 or epoch == e_cnt - 1:
+            if epoch % args.save_per_epoch == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
             if test_per_epoch > 0 and (epoch % test_per_epoch == 0 or epoch == e_cnt - 1):
                 self.test_and_save_result(epoch, test_loader)
         # for epoch
-        utils.output_list(loss_avg_arr, 'loss_avg')
-        utils.output_list(self.test_avg_arr, 'test_avg')
-        utils.output_list(self.test_ema_arr, 'test_ema')
+        utils.output_list(loss_avg_arr, 'loss_avg', ftm_str="{:10.8f}")
+        utils.output_list(self.test_avg_arr, 'test_vanilla', ftm_str="{:10.8f}")
+        utils.output_list(self.test_ema_arr, 'test_ema', ftm_str="{:10.8f}")
+
     # train(self)
 
     def train_model(self, x, epsilon, epoch, b_idx):
@@ -213,13 +213,13 @@ class DiffusionTrainingFast(Diffusion):
         self.model.eval()
         test_loss_avg = self.get_avg_loss(self.model, test_loader)
         self.model.train()
-        logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:8.4f}")
+        logging.info(f"E{epoch}. test_loss_avg:{test_loss_avg:.8f}")
         self.test_avg_arr.append(test_loss_avg)
         if self.ema_flag and epoch >= self.ema_start_epoch:
             self.ema_helper.ema(self.m_ema)
             test_ema_avg = self.get_avg_loss(self.m_ema, test_loader)
             self.test_ema_arr.append(test_ema_avg)
-            logging.info(f"E{epoch}. test_ema_avg :{test_ema_avg:8.4f}")
+            logging.info(f"E{epoch}. test_ema_avg :{test_ema_avg:.8f}")
 
     def get_avg_loss(self, model, data_loader):
         """

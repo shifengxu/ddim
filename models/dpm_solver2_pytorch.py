@@ -299,7 +299,10 @@ class DPM_Solver:
             if self.ts_type == 'continuous': # ts range is (0, 1)
                 return ts
             # by now the ts_type == 'discrete'
-            ts = (ts - 1. / self.noise_schedule.total_N) * 1000.
+
+            # in discrete case, the ts will be less than the real ts. So we comment it out.
+            # ts = (ts - 1. / self.noise_schedule.total_N) * 1000.
+            ts = ts * 1000.
             if self.ts_int_flag: ts = ts.long()
             return ts
 

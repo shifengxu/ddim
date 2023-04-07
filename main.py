@@ -36,6 +36,7 @@ def parse_args_and_config():
     parser.add_argument("--data_dir", type=str, default="./exp")
     parser.add_argument("--test_data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_test")
     parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
+    parser.add_argument("--save_per_epoch", type=int, default=10, help='save checkpoint.')
     parser.add_argument('--lr', type=float, default=0., help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")

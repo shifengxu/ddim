@@ -361,6 +361,10 @@ def main():
             runner = DiffusionDpmSolver(args, config, order=od, steps=st, skip_type=sk, device=config.device)
             args.predefined_aap_file = ''
             runner.sample_times(1)
+        elif args.todo == 'sample_all':
+            logging.info(f"{args.todo} ===================================")
+            runner = DiffusionDpmSolver(args, config, device=config.device)
+            runner.sample_all(args.order_arr, args.steps_arr, args.skip_type_arr, times=args.repeat_times)
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     # for
