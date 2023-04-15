@@ -340,6 +340,7 @@ def main():
     logging.info(f"args: {args}")
 
     arr = args.todo.split(',')
+    arr = [a.strip() for a in arr]
     for a in arr:
         if a == 'alpha_bar_all':
             logging.info(f"alpha_bar_all() ===================================")

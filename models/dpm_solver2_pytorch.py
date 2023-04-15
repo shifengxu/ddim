@@ -1110,12 +1110,12 @@ class DPM_Solver:
         if not hasattr(self, '_log_sample'):
             setattr(self, '_log_sample', True)
             log_fn(f"{type(self).__name__}::sample()")
-            log_fn(f" order     : {order}")
-            log_fn(f" steps     : {steps}")
-            log_fn(f" skip_type : {skip_type}")
-            log_fn(f" t_start   : {t_start}")
-            log_fn(f" t_end     : {t_end}")
-            log_fn(f" _batch_idx: {_batch_idx}")
+            log_fn(f"  order     : {order}")
+            log_fn(f"  steps     : {steps}")
+            log_fn(f"  skip_type : {skip_type}")
+            log_fn(f"  t_start   : {t_start}")
+            log_fn(f"  t_end     : {t_end}")
+            log_fn(f"  _batch_idx: {_batch_idx}")
         if _batch_idx == 0:
             self.noise_schedule.alpha_bar_map = {}  # only init it for first batch
         else:
@@ -1190,6 +1190,8 @@ class DPM_Solver:
                     orders = [order,] * K
                     timesteps_outer = self.get_time_steps(skip_type=skip_type, t_T=t_T, t_0=t_0, N=K, device=device)
                 ts_cnt = 0
+                if return_intermediate:
+                    intermediates.append(x)  # store original x_T
                 for step, order in enumerate(orders):
                     s, t = timesteps_outer[step], timesteps_outer[step + 1]
                     t_idx = torch.arange(ts_cnt, ts_cnt+order+1, dtype=torch.long, device=device)

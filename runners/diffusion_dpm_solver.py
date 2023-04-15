@@ -1,8 +1,10 @@
 import datetime
 import os
+import random
 import time
 import logging
 
+import numpy as np
 import torch
 import torch_fidelity
 
@@ -39,6 +41,25 @@ class DiffusionDpmSolver(Diffusion):
             img_path = os.path.join(img_dir, f"{img_id:05d}.png")
             tvu.save_image(x[i], img_path)
         logging.info(f"  saved {img_cnt} images: {img_path}. elp:{elp}, eta:{eta}")
+
+    def save_images_intermediate(self, config, im_arr, time_start, r_idx, n_rounds, b_sz):
+        img_cnt = len(im_arr[0])
+        int_cnt = len(im_arr)  # intermediate count
+        if int_cnt == 10:
+            # only choose 5 intermediate images for bedroom
+            batch_arr = [inverse_data_transform(config, im) for im in im_arr[1::2]]
+        else:
+            batch_arr = [inverse_data_transform(config, im) for im in im_arr]
+        elp, eta = utils.get_time_ttl_and_eta(time_start, r_idx+1, n_rounds)
+        img_dir = self.args.sample_output_dir
+        img_path = None
+        for i in range(img_cnt):
+            img_id = r_idx * b_sz + i
+            img_path = os.path.join(img_dir, f"{img_id:05d}.png")
+            x = [batch[i] for batch in batch_arr]
+            x.reverse()
+            tvu.save_image(x, img_path, nrow=10, padding=1)
+        logging.info(f"  saved {img_cnt} intermediate images: {img_path}. elp:{elp}, eta:{eta}")
 
     def sample_ratios(self, r_start=1., r_end=1.2, step=0.001):
         logging.info(f"DiffusionDpmSolver::sample_ratios({r_start:.4f}, {r_end:.4f}, {step:.4f})")
@@ -83,7 +104,7 @@ class DiffusionDpmSolver(Diffusion):
         def save_result(_msg_arr, _fid_arr):
             with open('./sample_all_result.txt', 'w') as f_ptr:
                 [f_ptr.write(f"# {m}\n") for m in _msg_arr]
-                [f_ptr.write(f"[{d}] {f:8.4f}: {k}\n") for d, f, k in _fid_arr]
+                [f_ptr.write(f"[{dt}] {avg:8.4f} {std:.4f}: {k}\n") for dt, avg, std, k in _fid_arr]
             # with
         # end of inner def
         args = self.args
@@ -106,11 +127,11 @@ class DiffusionDpmSolver(Diffusion):
                 self.order = order
                 for skip_type in skip_arr:
                     self.skip_type = skip_type
-                    fid_avg = self.sample_times(times)
+                    fid_avg, fid_std = self.sample_times(times)
                     dtstr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                     key = f"{order}-{steps}-{skip_type}"
-                    fid_arr.append([dtstr, fid_avg, key])
-                    logging.info(f"fid_avg: {key}: {fid_avg:8.5f}")
+                    fid_arr.append([dtstr, fid_avg, fid_std, key])
+                    logging.info(f"fid_avg: {key}: {fid_avg:8.5f}, fid_std:{fid_std:.5f}")
                     save_result(msg_arr, fid_arr)
                 # for
             # for
@@ -142,14 +163,15 @@ class DiffusionDpmSolver(Diffusion):
         for f_path in sorted(f_list):
             logging.info(f"aap_file: {f_path} ------------------------------------")
             args.predefined_aap_file = f_path
-            fid_avg = self.sample_times(times)
-            fid_dict[f_path] = fid_avg
-            logging.info(f"fid_avg: {f_path}: {fid_avg:8.5f}")
+            fid_avg, fid_std = self.sample_times(times)
+            fid_dict[f_path] = (fid_avg, fid_std)
+            logging.info(f"fid_avg: {f_path}: {fid_avg:8.5f}; fid_std:{fid_std:.5f}")
             f_path = os.path.join(sum_dir, 'sample_all_scheduled_fid.txt')
             logging.info(f"Save file: {f_path}")
             with open(f_path, 'w') as f_ptr:
                 for key in sorted(fid_dict):
-                    f_ptr.write(f"{fid_dict[key]:9.5f}: {key}\n")
+                    avg, std = fid_dict[key]
+                    f_ptr.write(f"{avg:9.5f} {std:.5f}: {key}\n")
             # with
         # for
 
@@ -171,10 +193,8 @@ class DiffusionDpmSolver(Diffusion):
         # def
         args = self.args
         args.predefined_aap_file = ""
-        args.sample_count = 1  # sample is not purpose. So make it small
         logging.info(f"DiffusionDpmSolver::alpha_bar_all()")
         logging.info(f"  args.predefined_aap_file: '{args.predefined_aap_file}'")
-        logging.info(f"  args.sample_count       : '{args.sample_count}'")
         order_arr = args.order_arr or [1, 2, 3]
         steps_arr = args.steps_arr or [10, 15, 20, 25, 50, 100]
         skip_arr = args.skip_type_arr or ['logSNR', 'time_quadratic', 'time_uniform']
@@ -192,7 +212,7 @@ class DiffusionDpmSolver(Diffusion):
                 self.steps = steps
                 for skip_type in skip_arr:
                     self.skip_type = skip_type
-                    self.sample()
+                    self.sample(sample_count=1)
                     f_path = f"dpm_alphaBar_{order}-{steps:03d}-{skip_type}.txt"
                     f_path = os.path.join(ab_dir, f_path)
                     save_ab_file(f_path)
@@ -226,19 +246,16 @@ class DiffusionDpmSolver(Diffusion):
             logging.info(f"{ss}-{i} => FID: {fid:.6f}")
             fid_arr.append(fid)
         # for
-        fid_sum = 0.
-        for fid in fid_arr:
-            fid_sum += fid
-        avg = fid_sum / len(fid_arr)
-        return avg
+        avg, std = np.mean(fid_arr), np.std(fid_arr)
+        return avg, std
 
-    def sample(self):
+    def sample(self, sample_count=None):
         config, args = self.config, self.args
         model = Model(config, ts_type=args.ts_type)
         model = self.model_load_from_local(model)
         model.eval()
 
-        self.sample_count = args.sample_count
+        self.sample_count = sample_count or args.sample_count
         logging.info(f"DiffusionDpmSolver::sample(self, {type(model).__name__})...")
         logging.info(f"  sample_output_dir      : {args.sample_output_dir}")
         logging.info(f"  sample_count           : {self.sample_count}")
@@ -250,16 +267,39 @@ class DiffusionDpmSolver(Diffusion):
         if not os.path.exists(args.sample_output_dir):
             logging.info(f"  os.makedirs({args.sample_output_dir})")
             os.makedirs(args.sample_output_dir)
+        # set random seed
+        seed = args.seed  # if seed is 0. then ignore it.
+        if seed:
+            # set seed before generating sample. Make sure use same seed to generate.
+            logging.info(f"  args.seed: {seed}")
+            logging.info(f"  torch.manual_seed({seed})")
+            logging.info(f"  np.random.seed({seed})")
+            logging.info(f"  random.seed({seed})")
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            random.seed(seed)
+        if seed and torch.cuda.is_available():
+            logging.info(f"  torch.cuda.manual_seed({seed})")
+            logging.info(f"  torch.cuda.manual_seed_all({seed})")
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+        logging.info(f"  final seed: torch.initial_seed(): {torch.initial_seed()}")
+
         time_start = time.time()
         d = config.data
         dpm_solver = self.create_dpm_solver(model, self.device)
+        ri = False  # return_intermediate. hard-code temporarily
         with torch.no_grad():
             for r_idx in range(n_rounds):
                 n = b_sz if r_idx + 1 < n_rounds else self.sample_count - r_idx * b_sz
                 logging.info(f"DiffusionDpmSolver::round: {r_idx}/{n_rounds}. to generate: {n}")
                 x_t = torch.randn(n, d.channels, d.image_size, d.image_size, device=self.device)
-                x = self.sample_by_dpm_solver(x_t, dpm_solver, r_idx)
-                self.save_images(config, x, time_start, r_idx, n_rounds, b_sz)
+                x = self.sample_by_dpm_solver(x_t, dpm_solver, r_idx, return_intermediate=ri)
+                if ri:
+                    x, im_arr = x
+                    self.save_images_intermediate(config, im_arr, time_start, r_idx, n_rounds, b_sz)
+                else:
+                    self.save_images(config, x, time_start, r_idx, n_rounds, b_sz)
             # for r_idx
         # with
 
@@ -413,7 +453,7 @@ class DiffusionDpmSolver(Diffusion):
         self.noise_schedule = noise_schedule
         return dpm_solver
 
-    def sample_by_dpm_solver(self, x_T, dpm_solver: DPM_Solver, batch_idx):
+    def sample_by_dpm_solver(self, x_T, dpm_solver: DPM_Solver, batch_idx, return_intermediate=False):
         # You can use steps = 10, 12, 15, 20, 25, 50, 100.
         # Empirically, we find that steps in [10, 20] can generate quite good samples.
         # And steps = 20 can almost converge.
@@ -426,6 +466,7 @@ class DiffusionDpmSolver(Diffusion):
             t_start=None,
             t_end=None,
             batch_idx=batch_idx,
+            return_intermediate=return_intermediate,
         )
         if batch_idx == 0:
             utils.onetime_log_flush()
