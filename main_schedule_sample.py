@@ -40,10 +40,11 @@ class ScheduleSampleConfig:
         return self
 
 class ScheduleSampleResult:
-    def __init__(self, ssc: ScheduleSampleConfig, key=None, fid=None, fid_base=0.):
+    def __init__(self, ssc: ScheduleSampleConfig, key=None, fid=None, fid_std=None, fid_base=0.):
         self.ssc = ssc
         self.key = key
         self.fid = fid
+        self.fid_std = fid_std
         self.notes = ''
         self.fid_base = fid_base  # base FID. new FID will compare with it.
 
@@ -173,8 +174,8 @@ def schedule_and_sample(args, config):
             scheduled_file = sb.schedule_single(f_path, args.lr, ssc.lp, order=ssc.calo)
             args.predefined_aap_file = scheduled_file
             args.ts_int_flag = ssc.ts_int_flag
-            fid_avg = ds.sample_times(args.repeat_times)
-            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_base)
+            fid_avg, fid_std = ds.sample_times(args.repeat_times)
+            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_std, fid_base)
             rt_flag = reach_target(fid_base, fid_avg, ssc.improve_target)
             if rt_flag:
                 ssr.notes = f"reach_target({fid_base:.5f}, {fid_avg:.5f}, {ssc.improve_target})"
@@ -224,8 +225,8 @@ def sample_scheduled(args, config):
         for ssc in ssc_arr:
             args.predefined_aap_file = f_path
             args.ts_int_flag = ssc.ts_int_flag
-            fid_avg = ds.sample_times(args.repeat_times)
-            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_base)
+            fid_avg, fid_std = ds.sample_times(args.repeat_times)
+            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_std, fid_base)
             rt_flag = reach_target(fid_base, fid_avg, ssc.improve_target)
             if rt_flag:
                 ssr.notes = f"reach_target({fid_base:.5f}, {fid_avg:.5f}, {ssc.improve_target})"
@@ -244,11 +245,11 @@ def sample_scheduled(args, config):
 def output_ssr_list(ssr_list, f_path):
     log_fn(f"Save file: {f_path}")
     with open(f_path, 'w') as f_ptr:
-        f_ptr.write(f"# FID_base=>   FID    : lp    :ts_int: calo: key                 : notes\n")
+        f_ptr.write(f"# FID_base=>   FID    : std    : lp    :ts_int: calo: key                 : notes\n")
         for ssr in ssr_list:
             ssc = ssr.ssc
-            f_ptr.write(f"{ssr.fid_base:9.5f} => {ssr.fid:9.5f}: {ssc.lp:.4f}: "
-                        f"{'True ' if ssc.ts_int_flag else 'False'}: "
+            f_ptr.write(f"{ssr.fid_base:9.5f} => {ssr.fid:9.5f}: {ssr.fid_std:.5f}: "
+                        f"{ssc.lp:.4f}: {'True ' if ssc.ts_int_flag else 'False'}: "
                         f"{ssc.calo:4d}: {ssr.key.ljust(20)}: {ssr.notes}\n")
         # for
     # with
