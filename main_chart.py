@@ -367,7 +367,7 @@ def mse_error_vs_alpha_bar():
     ax = fig.add_subplot(111)
     plt.xlim((0, 1.02))
     # plt.ylim((0, 1800))
-    plt.ylabel(r"$f_{\eta}$    ", fontsize=35, rotation=0)  # make it horizontal
+    plt.ylabel(r"$f_{\Delta}$    ", fontsize=35, rotation=0)  # make it horizontal
     plt.xlabel(r"$\bar{\alpha}$", fontsize=30)
     plt.yticks(fontsize=25)
     plt.xticks(fontsize=25)
@@ -375,13 +375,15 @@ def mse_error_vs_alpha_bar():
     mse_train = [f / 3072 for f in mse_train]
     mse_test  = [f / 3072 for f in mse_test]
     ax.plot(alpha_bar, mse_train, linestyle='-', linewidth=8, color='c',
-            label=r"$f_{\eta}$ value on training dataset")
+            label=r"$f_{\Delta}$ value on training dataset")
     ax.plot(alpha_bar, mse_test, linestyle='--', linewidth=4, color='r',
-            label=r"$f_{\eta}$ value on testing dataset")
+            label=r"$f_{\Delta}$ value on testing dataset")
     ax.legend(fontsize=25, loc='upper center')
 
     plt.show()
-    fig.savefig('./configs/chart/mse_error_vs_alpha_bar.png', bbox_inches='tight')
+    f_path = './configs/chart/mse_error_vs_alpha_bar.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file: {f_path}")
     plt.close()
 
 def fid_compare_ddim_cifar10():
@@ -726,12 +728,12 @@ def fig_trajectory_compare_all3():
 def main():
     # fig_trajectory_ori_vs_new()
     # merge_image()
-    # mse_error_vs_alpha_bar()
+    mse_error_vs_alpha_bar()
     # fid_compare_ddim_cifar10()
     # fid_compare_ddim_bedroom()
     # fid_compare_ddim_celeba()
     # fid_compare_pndm_cifar10()
-    fid_compare_splitnm_imagenet()
+    # fid_compare_splitnm_imagenet()
     # fig_trajectory_compare_all3()
 
 if __name__ == '__main__':
