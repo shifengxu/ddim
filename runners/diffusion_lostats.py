@@ -241,7 +241,47 @@ class DiffusionLostats(Diffusion):
         # utils.output_list(var_ttl_arr, 'loss_ttl')
         # utils.output_list(cal_cnt_arr, 'loss_cnt')
         # utils.output_list(var_avg_arr, 'loss_avg')
-    # run(self)
+    # run_xt(self)
+
+    def run_delta(self):
+        """Focus on delta between predicted noise and ground truth noise"""
+        train_loader, test_loader = self.get_data_loaders()
+        model = self.get_model()
+        model.eval()
+
+        ts_list = [0, 99, 199, 299, 399, 499, 599, 699, 799, 899, 999]
+        b_cnt = len(train_loader)   # batch count
+        b_sz = self.args.batch_size or self.config.training.batch_size
+        logging.info(f"b_cnt  : {b_cnt}")
+        logging.info(f"b_sz   : {b_sz}")
+        with torch.no_grad():
+            for ts in ts_list:
+                delta_list = []
+                for b_idx, (x, y) in enumerate(train_loader):
+                    x = x.to(self.device)
+                    x = data_transform(self.config, x)
+                    b_sz = x.size(0)
+                    t = torch.ones((b_sz,), dtype=torch.int, device=self.device)
+                    t *= ts
+                    e = torch.randn_like(x)
+                    at = self.alphas_cumprod.index_select(0, t).view(-1, 1, 1, 1)  # alpha_t
+                    xt = x * at.sqrt() + e * (1.0 - at).sqrt()
+                    output = model(xt, t.float())
+                    delta = output - e
+                    delta = delta.view(b_sz, -1)  # [batch_size, c*h*w]
+                    for i in range(b_sz):
+                        delta_list.append(delta[i][2000])
+
+                    logging.info(f"B{b_idx:03d}/{b_cnt}.ts{ts:03d}")
+                # for loader
+                f_path = f"./output0_lostats/ts{ts:03d}.txt"
+                logging.info(f"write {len(delta_list)} lines to {f_path}")
+                with open(f_path, 'w') as fptr:
+                    [fptr.write(f"{d:10.7f}\r\n") for d in delta_list]
+                # with
+            # for ts
+        # with
+    # run_delta(self)
 
     @staticmethod
     def save_images(config, img_dir, x, r_idx, b_sz):
