@@ -832,7 +832,7 @@ def prediction_error_distribution():
     def set_plt_ui(_ax):
         plt.tick_params('both', labelsize=20)
         # plt.title(r"Distribution of prediction error", fontsize=25)
-        plt.xlabel(r"$\epsilon_\theta(x_t) - \epsilon(x_t)$", fontsize=25)
+        plt.xlabel(r"$d$-$th$ dimension of $\epsilon_\theta(x_t) - \epsilon(x_t)$", fontsize=25)
         plt.ylabel("Frequency", fontsize=25)
         plt.legend(fontsize=20, loc='upper right')
         d = dict(fontsize=18, transform=_ax.transAxes)
