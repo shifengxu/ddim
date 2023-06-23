@@ -25,7 +25,6 @@ def parse_args_and_config():
     parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
     parser.add_argument("--repeat_times", type=int, default=5, help='run XX times to get avg FID')
     parser.add_argument("--dpm_order", type=int, default=0, help='force DPM order to be XX. 0 means ignore.')
-    parser.add_argument("--ts_int_flag", type=str2bool, default=False, help='timestep change to int type')
     parser.add_argument("--use_predefined_ts", type=str2bool, default=False)
     parser.add_argument("--steps_arr", nargs='+', type=int, default=[20])
     parser.add_argument("--order_arr", nargs='+', type=int, default=[1])

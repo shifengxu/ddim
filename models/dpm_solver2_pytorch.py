@@ -190,7 +190,6 @@ class DPM_Solver:
         thresholding_max_val=1.,
         dynamic_thresholding_ratio=0.995,
         use_predefined_ts=False,
-        ts_int_flag=False,
         ts_type='discrete',
     ):
         """Construct a DPM-Solver. 
@@ -263,7 +262,6 @@ class DPM_Solver:
         self.dynamic_thresholding_ratio = dynamic_thresholding_ratio
         self.thresholding_max_val = thresholding_max_val
         self.use_predefined_ts    = use_predefined_ts
-        self.ts_int_flag          = ts_int_flag
         self.ts_type              = ts_type
         log_fn(f"DPM_Solver()")
         log_fn(f"  skip_type                 : {self.skip_type}")
@@ -271,7 +269,6 @@ class DPM_Solver:
         log_fn(f"  thresholding_max_val      : {self.thresholding_max_val}")
         log_fn(f"  dynamic_thresholding_ratio: {self.dynamic_thresholding_ratio}")
         log_fn(f"  use_predefined_ts         : {self.use_predefined_ts}")
-        log_fn(f"  ts_int_flag               : {self.ts_int_flag}")
         log_fn(f"  ts_type                   : {self.ts_type}")
 
     def dynamic_thresholding_fn(self, x0, t):
@@ -303,7 +300,6 @@ class DPM_Solver:
             # in discrete case, the ts will be less than the real ts. So we comment it out.
             # ts = (ts - 1. / self.noise_schedule.total_N) * 1000.
             ts = ts * 1000.
-            if self.ts_int_flag: ts = ts.long()
             return ts
 
         t = handle_ts(t)

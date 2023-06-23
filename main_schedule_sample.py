@@ -17,36 +17,32 @@ log_fn = utils.log_info
 torch.set_printoptions(sci_mode=False)
 
 class ScheduleSampleConfig:
-    def __init__(self, lp=None, ts_int_flag=None, calo=None, improve_target=None):
+    def __init__(self, lp=None, aa_low_lambda=None, calo=None):
         """
         :param lp: learning portion
-        :param ts_int_flag:
+        :param aa_low_lambda:
         :param calo: calculating loss order. order when calculating loss during schedule
-        :param improve_target: if FID reach the improve-target, then stop iteration
         """
         self.lp = lp
-        self.ts_int_flag = ts_int_flag
+        self.aa_low_lambda = aa_low_lambda
         self.calo = calo
-        self.improve_target = improve_target
 
     def parse(self, cfg_str):
-        # cfg_str is like: "0.1   : False         : 0     : 20%"
+        # cfg_str is like: "0.1   : 1E10       : 0"
         arr = cfg_str.strip().split(':')
-        if len(arr) != 4: raise ValueError(f"Invalid cfg_str: {cfg_str}")
+        if len(arr) < 3: raise ValueError(f"Invalid cfg_str: {cfg_str}")
         self.lp             = float(arr[0].strip())
-        self.ts_int_flag    = str2bool(arr[1].strip())
+        self.aa_low_lambda  = float(arr[1].strip())
         self.calo           = int(arr[2].strip())
-        self.improve_target = arr[3].strip()  # keep as string. Because it may be: 20% or 0.33 or empty
         return self
 
 class ScheduleSampleResult:
-    def __init__(self, ssc: ScheduleSampleConfig, key=None, fid=None, fid_std=None, fid_base=0.):
+    def __init__(self, ssc: ScheduleSampleConfig, key=None, fid=None, fid_std=None):
         self.ssc = ssc
         self.key = key
         self.fid = fid
         self.fid_std = fid_std
         self.notes = ''
-        self.fid_base = fid_base  # base FID. new FID will compare with it.
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
@@ -57,10 +53,8 @@ def parse_args_and_config():
     parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--ss_plan_file", type=str, default="./output3_vubo_celeba_conti/vubo_ss_plan.txt")
-    parser.add_argument("--fid_base_file", type=str, default="")
     parser.add_argument("--repeat_times", type=int, default=1, help='run XX times to get avg FID')
     parser.add_argument("--dpm_order", type=int, default=0, help='force DPM order to be XX. 0 means ignore.')
-    parser.add_argument("--ts_int_flag", type=str2bool, default=False, help='timestep change to int type')
     parser.add_argument("--use_predefined_ts", type=str2bool, default=False)
     parser.add_argument("--steps_arr", nargs='+', type=int, default=[10])
     parser.add_argument("--order_arr", nargs='+', type=int, default=[1])
@@ -150,7 +144,6 @@ def schedule_and_sample(args, config):
     run_hist_file = os.path.join(sum_dir, "ss_run_hist.txt")
     fid_best_file = os.path.join(sum_dir, "ss_run_best.txt")
     plan_map = load_plans_from_file(args.ss_plan_file)
-    fid_base_map = load_fid_from_file(args.fid_base_file)
     file_list = [f for f in os.listdir(ab_dir) if 'dpm_alphaBar' in f and f.endswith('.txt')]
     file_list = [os.path.join(ab_dir, f) for f in file_list]
     file_list = [f for f in file_list if os.path.isfile(f)]
@@ -169,22 +162,15 @@ def schedule_and_sample(args, config):
         key = tmp.split('.')[0]                 # 1-010-time_quadratic
         ssc_arr = plan_map.get(key, plan_map['default'])
         ssr_best = None
-        fid_base = fid_base_map.get(key, 0.)
         for ssc in ssc_arr:
-            scheduled_file = sb.schedule_single(f_path, args.lr, ssc.lp, order=ssc.calo)
+            scheduled_file = sb.schedule_single(f_path, args.lr, ssc.lp, ssc.aa_low_lambda, order=ssc.calo)
             args.predefined_aap_file = scheduled_file
-            args.ts_int_flag = ssc.ts_int_flag
             fid_avg, fid_std = ds.sample_times(args.repeat_times)
-            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_std, fid_base)
-            rt_flag = reach_target(fid_base, fid_avg, ssc.improve_target)
-            if rt_flag:
-                ssr.notes = f"reach_target({fid_base:.5f}, {fid_avg:.5f}, {ssc.improve_target})"
-                log_fn(ssr.notes)
+            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_std)
             run_hist.append(ssr)
             output_ssr_list(run_hist, run_hist_file)
             if ssr_best is None or ssr_best.fid > fid_avg:
                 ssr_best = ssr
-            if rt_flag: break
             # if
         # for
         fid_best.append(ssr_best)
@@ -205,7 +191,6 @@ def sample_scheduled(args, config):
     run_hist_file = os.path.join(sum_dir, "ss_run_hist.txt")
     fid_best_file = os.path.join(sum_dir, "ss_run_best.txt")
     plan_map = load_plans_from_file(args.ss_plan_file)
-    fid_base_map = load_fid_from_file(args.fid_base_file)
     file_list = [f for f in os.listdir(sch_dir) if 'dpm_alphaBar' in f and f.endswith('.txt')]
     file_list = [os.path.join(sch_dir, f) for f in file_list]
     file_list = [f for f in file_list if os.path.isfile(f)]
@@ -221,21 +206,14 @@ def sample_scheduled(args, config):
         key = tmp.split('.')[0]                 # 1-010-time_quadratic
         ssc_arr = plan_map.get(key, plan_map['default'])
         ssr_best = None
-        fid_base = fid_base_map.get(key, 0.)
         for ssc in ssc_arr:
             args.predefined_aap_file = f_path
-            args.ts_int_flag = ssc.ts_int_flag
             fid_avg, fid_std = ds.sample_times(args.repeat_times)
-            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_std, fid_base)
-            rt_flag = reach_target(fid_base, fid_avg, ssc.improve_target)
-            if rt_flag:
-                ssr.notes = f"reach_target({fid_base:.5f}, {fid_avg:.5f}, {ssc.improve_target})"
-                log_fn(ssr.notes)
+            ssr = ScheduleSampleResult(ssc, key, fid_avg, fid_std)
             run_hist.append(ssr)
             output_ssr_list(run_hist, run_hist_file)
             if ssr_best is None or ssr_best.fid > fid_avg:
                 ssr_best = ssr
-            if rt_flag: break
             # if
         # for
         fid_best.append(ssr_best)
@@ -245,29 +223,14 @@ def sample_scheduled(args, config):
 def output_ssr_list(ssr_list, f_path):
     log_fn(f"Save file: {f_path}")
     with open(f_path, 'w') as f_ptr:
-        f_ptr.write(f"# FID_base=>   FID    : std    : lp    :ts_int: calo: key                 : notes\n")
+        f_ptr.write(f"# FID    : std    : lp    : lambda : calo: key                 : notes\n")
         for ssr in ssr_list:
             ssc = ssr.ssc
-            f_ptr.write(f"{ssr.fid_base:9.5f} => {ssr.fid:9.5f}: {ssr.fid_std:.5f}: "
-                        f"{ssc.lp:.4f}: {'True ' if ssc.ts_int_flag else 'False'}: "
+            f_ptr.write(f"{ssr.fid:9.5f}: {ssr.fid_std:.5f}: "
+                        f"{ssc.lp:.4f}: {ssc.aa_low_lambda:.1e}: "
                         f"{ssc.calo:4d}: {ssr.key.ljust(20)}: {ssr.notes}\n")
         # for
     # with
-
-def reach_target(fid_base, fid_new, improve_target):
-    if improve_target is None or improve_target == '' or improve_target == 0:
-        return False
-    if fid_base is None or fid_base == '' or fid_base == 0:
-        return False
-    if fid_base <= fid_new:
-        return False
-    if '%' in improve_target: # 20%
-        imp_flt = float(improve_target[:-1]) / 100.
-        new_flt = (fid_base - fid_new) / fid_base
-    else: # 0.2
-        imp_flt = float(improve_target)
-        new_flt = fid_base - fid_new
-    return new_flt >= imp_flt
 
 def load_plans_from_file(f_path):
     log_fn(f"load_plans_from_file(): {f_path}")
@@ -303,36 +266,6 @@ def load_plans_from_file(f_path):
     if 'default' not in plan_map:
         raise ValueError(f"'default' must be in plan file: {f_path}")
     return plan_map
-
-def load_fid_from_file(f_path):
-    log_fn(f"load_fid_from_file(): {f_path}")
-    if f_path is None or f_path == '':
-        log_fn(f"  !!! fid_file empty. Will use 0.0 by default.")
-        return {}
-    with open(f_path, 'r') as f:
-        lines = f.readlines()
-    cnt_empty = 0
-    cnt_comment = 0
-    cnt_valid = 0
-    fid_map = {}  # key is string, value is fid of float type
-    for line in lines:
-        line = line.strip()
-        if line == '':
-            cnt_empty += 1
-            continue
-        if line.startswith('#'):
-            cnt_comment += 1
-            continue
-        cnt_valid += 1
-        key, val = line.strip().split(':', 1)
-        key, val = key.strip(), val.strip()
-        fid_map[key] = float(val)
-    log_fn(f"  cnt_empty  : {cnt_empty}")
-    log_fn(f"  cnt_comment: {cnt_comment}")
-    log_fn(f"  cnt_valid  : {cnt_valid}")
-    log_fn(f"  cnt key    : {len(fid_map)}")
-    log_fn(f"load_fid_from_file(): {f_path}... Done")
-    return fid_map
 
 def main():
     args, config = parse_args_and_config()

@@ -1,0 +1,47 @@
+# order-steps-skip_typ  : lp    : lambda        : calo
+default                 : 0.01  : 1E7           : 0
+1-010-logSNR            : 0.05  : 1E7           : 0
+1-010-logSNR            : 0.1   : 1E7           : 0
+1-010-logSNR            : 0.2   : 1E7           : 0
+1-010-logSNR            : 0.3   : 1E7           : 0
+
+1-010-logSNR            : 0.05  : 1E8           : 0
+1-010-logSNR            : 0.1   : 1E8           : 0
+1-010-logSNR            : 0.2   : 1E8           : 0
+1-010-logSNR            : 0.3   : 1E8           : 0
+
+1-010-logSNR            : 0.05  : 1E9           : 0
+1-010-logSNR            : 0.1   : 1E9           : 0
+1-010-logSNR            : 0.2   : 1E9           : 0
+1-010-logSNR            : 0.3   : 1E9           : 0
+
+1-010-time_quadratic    : 0.05  : 1E7           : 0
+1-010-time_quadratic    : 0.1   : 1E7           : 0
+1-010-time_quadratic    : 0.2   : 1E7           : 0
+1-010-time_quadratic    : 0.3   : 1E7           : 0
+
+1-010-time_quadratic    : 0.05  : 1E8           : 0
+1-010-time_quadratic    : 0.1   : 1E8           : 0
+1-010-time_quadratic    : 0.2   : 1E8           : 0
+1-010-time_quadratic    : 0.3   : 1E8           : 0
+
+1-010-time_quadratic    : 0.05  : 1E9           : 0
+1-010-time_quadratic    : 0.1   : 1E9           : 0
+1-010-time_quadratic    : 0.2   : 1E9           : 0
+1-010-time_quadratic    : 0.3   : 1E9           : 0
+
+1-010-time_uniform      : 0.05  : 1E7           : 0
+1-010-time_uniform      : 0.1   : 1E7           : 0
+1-010-time_uniform      : 0.2   : 1E7           : 0
+1-010-time_uniform      : 0.3   : 1E7           : 0
+
+1-010-time_uniform      : 0.05  : 1E8           : 0
+1-010-time_uniform      : 0.1   : 1E8           : 0
+1-010-time_uniform      : 0.2   : 1E8           : 0
+1-010-time_uniform      : 0.3   : 1E8           : 0
+
+1-010-time_uniform      : 0.05  : 1E9           : 0
+1-010-time_uniform      : 0.1   : 1E9           : 0
+1-010-time_uniform      : 0.2   : 1E9           : 0
+1-010-time_uniform      : 0.3   : 1E9           : 0
+

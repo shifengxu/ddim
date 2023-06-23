@@ -50,15 +50,16 @@ class ScheduleBatch:
         # for
     # schedule_batch()
 
-    def schedule_single(self, f_path, lr, lp, order=None, skip_type=None):
+    def schedule_single(self, f_path, lr, lp, aa_low_lambda=None, order=None, skip_type=None):
         if not os.path.exists(self.output_dir):
             log_fn(f"os.makedirs({self.output_dir})")
             os.makedirs(self.output_dir)
+        aa_low_lambda = aa_low_lambda or self.aa_low_lambda
         m_arr = [f"lr           : {lr}",
                  f"lp           : {lp}",
                  f"n_epochs     : {self.n_epochs}",
                  f"aa_low       : {self.aa_low}",
-                 f"aa_low_lambda: {self.aa_low_lambda}",
+                 f"aa_low_lambda: {aa_low_lambda:.1e}",
                  f"beta_schedule: {self.beta_schedule}",
                  f"torch.seed() : {torch.seed()}"]  # message array
         [log_fn('  ' + m) for m in m_arr]
@@ -82,7 +83,7 @@ class ScheduleBatch:
         s_arr.insert(0, "Old alpha_bar and its timestep, and estimated timestep in vs")
         new_arr = c_arr + [''] + s_arr + [''] + m_arr
         f_name = os.path.basename(f_path)
-        scheduled_file = self.train(alpha_bar, lr, lp, order, skip_type, new_arr, f_name)
+        scheduled_file = self.train(alpha_bar, lr, lp, aa_low_lambda, order, skip_type, new_arr, f_name)
         return scheduled_file
 
     @staticmethod
@@ -140,7 +141,7 @@ class ScheduleBatch:
         if order is None: raise ValueError(f"Not found order in {f_path}")
         return f_arr, s_arr, int(order), skip_type
 
-    def train(self, alpha_bar, lr, lp, order, skip_type, m_arr, f_name):
+    def train(self, alpha_bar, lr, lp, aa_low_lambda, order, skip_type, m_arr, f_name):
         model = self.model_generate(alpha_bar, lp, self.device)
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
         model.train()
@@ -153,6 +154,8 @@ class ScheduleBatch:
         log_fn(f"  order    : {order}")
         log_fn(f"  lr       : {lr}")
         log_fn(f"  lp       : {lp}")
+        log_fn(f"  aa_low   : {self.aa_low}")
+        log_fn(f"  lambda   : {aa_low_lambda:.1e}")
         log_fn(f"  skip_type: {skip_type}")
         log_fn(f"  f_name   : {f_name}")
         log_fn(f"  e_cnt    : {e_cnt}")
@@ -163,7 +166,7 @@ class ScheduleBatch:
             loss_var, coef, weight_arr, numerator, sub_var = self.calc_loss(alpha, aacum, weight_arr, order)
             if loss_ori is None: loss_ori = loss_var.item()
             aa_min = aacum[-1]
-            loss_min = torch.square(aa_min - self.aa_low) * self.aa_low_lambda
+            loss_min = torch.square(aa_min - self.aa_low) * aa_low_lambda
             loss = torch.add(loss_var, loss_min)
             loss.backward()
             model.gradient_clip()

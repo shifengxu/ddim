@@ -442,7 +442,7 @@ class DiffusionDpmSolver(Diffusion):
                                     skip_type="predefined",
                                     use_predefined_ts=args.use_predefined_ts,
                                     ts_type=args.ts_type,
-                                    ts_int_flag=args.ts_int_flag)
+                                    )
         else:
             dpm_solver = DPM_Solver(model_fn, noise_schedule, algorithm_type="dpmsolver", skip_type=self.skip_type)
 
