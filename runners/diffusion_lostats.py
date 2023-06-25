@@ -249,6 +249,7 @@ class DiffusionLostats(Diffusion):
         model = self.get_model()
         model.eval()
 
+        dim = 0
         ts_list = [0, 99, 199, 299, 399, 499, 599, 699, 799, 899, 999]
         b_cnt = len(train_loader)   # batch count
         b_sz = self.args.batch_size or self.config.training.batch_size
@@ -270,11 +271,11 @@ class DiffusionLostats(Diffusion):
                     delta = output - e
                     delta = delta.view(b_sz, -1)  # [batch_size, c*h*w]
                     for i in range(b_sz):
-                        delta_list.append(delta[i][2000])
+                        delta_list.append(delta[i][dim])
 
                     logging.info(f"B{b_idx:03d}/{b_cnt}.ts{ts:03d}")
                 # for loader
-                f_path = f"./output0_lostats/ts{ts:03d}.txt"
+                f_path = f"./output0_lostats/dim{dim:04d}_ts{ts:03d}.txt"
                 logging.info(f"write {len(delta_list)} lines to {f_path}")
                 with open(f_path, 'w') as fptr:
                     [fptr.write(f"{d:10.7f}\r\n") for d in delta_list]
