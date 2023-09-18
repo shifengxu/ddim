@@ -7,7 +7,7 @@ import sys
 import os
 import torch
 import numpy as np
-import torch.utils.tensorboard as tb
+# import torch.utils.tensorboard as tb
 import torch.backends.cudnn as cudnn
 
 from runners.diffusion_lostats import DiffusionLostats
@@ -22,6 +22,7 @@ from runners.diffusion_latent_sampling import DiffusionLatentSampling
 from runners.diffusion_training0 import DiffusionTraining0
 from runners.diffusion_training_conti import DiffusionTrainingContinuous
 from runners.diffusion_training_fast import DiffusionTrainingFast
+from runners.diffusion_training_sam import DiffusionTrainingSam
 
 from utils import str2bool, dict2namespace
 
@@ -32,33 +33,41 @@ def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
 
     parser.add_argument("--config", type=str, default='./configs/cifar10.yml')
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
-    parser.add_argument("--data_dir", type=str, default="./exp")
-    parser.add_argument("--test_data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_test")
+    parser.add_argument("--todo", type=str, default='train_sam', help="train|sample|psample|lsample")
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
+    parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")
     parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
     parser.add_argument("--save_per_epoch", type=int, default=10, help='save checkpoint.')
-    parser.add_argument('--lr', type=float, default=0., help="learning rate")
+    parser.add_argument('--lr', type=float, default=0.0002, help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
-    parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--fivar_coef", type=str2bool, default=False, help="final variance coefficient")
-    parser.add_argument("--batch_size", type=int, default=250, help="0 mean to use size from config file")
+    parser.add_argument("--sam_flag", type=str2bool, default=True)
+
+    # logging
     parser.add_argument("--exp", type=str, default="exp", help="Path for saving running related data.")
-    parser.add_argument("--doc", type=str, default='doc',
-                        help="A string for documentation purpose. Will be the name of the log folder.")
+    parser.add_argument("--doc", type=str, default='doc', help="documentation purpose. Will be log folder name.")
+
+    # data
+    parser.add_argument("--data_dir", type=str, default="./exp")
+    parser.add_argument("--test_data_dir", type=str, default="../vq-vae-2-python/image_dataset/FFHQ32x32_test")
+    parser.add_argument("--batch_size", type=int, default=200, help="0 mean to use size from config file")
+
+    # model
+    parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
+    parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
+    parser.add_argument("--skip_type", type=str, default="uniform", help="skip according to (uniform or quadratic)")
+    parser.add_argument("--beta_schedule", type=str, default="linear")
+    parser.add_argument("--eta", type=float, default=0.0, help="eta used to control the variances of sigma")
     parser.add_argument('--ab_list', nargs='+', type=float, default=[], help='alpha_bar list')
-    parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
-    parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
-    parser.add_argument('--ema_start_epoch', type=int, default=50, help='EMA start epoch')
     parser.add_argument("--model_in_channels", type=int, default='0', help='model.in_channels')
     parser.add_argument("--data_resolution", type=int, default='0', help='data.resolution')
     parser.add_argument("--comment", type=str, default="", help="A string for experiment comment")
-    parser.add_argument("--verbose", type=str, default="info",
-                        help="Verbose level: info | debug | warning | critical")
-    parser.add_argument("--todo", type=str, default='sample', help="train|sample|psample|lsample")
-    parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
+    parser.add_argument("--verbose", type=str, default="info", help="info | debug | warning | critical")
     parser.add_argument("--train_ds_limit", type=int, default=0, help="training dataset limit")
+
+    # sampling
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_img_init_id", type=int, default='0', help="sample image init ID")
     parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
@@ -72,20 +81,17 @@ def parse_args_and_config():
     parser.add_argument('--psample_dir', type=str, default="./exp/partialSample")
     parser.add_argument('--psample_type', type=str, default='from_x0', help='from_x0|from_gn')
     parser.add_argument("--fid", action="store_true", default=True)
+    parser.add_argument("--sample_type", type=str, default="generalized", help="generalized | ddpm_noisy")
+
+    # training
+    parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
+    parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
+    parser.add_argument('--ema_start_epoch', type=int, default=5, help='EMA start epoch')
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", type=str2bool, default=False)
     parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
-    parser.add_argument("--ni", action="store_true", default=True,
-                        help="No interaction. Suitable for Slurm Job launcher")
+    parser.add_argument("--ni", action="store_true", default=True, help="No interaction")
     parser.add_argument("--use_pretrained", action="store_true")
-    parser.add_argument("--sample_type", type=str, default="generalized",
-                        help="sampling approach (generalized or ddpm_noisy)")
-    parser.add_argument("--skip_type", type=str, default="uniform",
-                        help="skip according to (uniform or quadratic)")
-    parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
-    parser.add_argument("--beta_schedule", type=str, default="linear")
-    parser.add_argument("--eta", type=float, default=0.0,
-                        help="eta used to control the variances of sigma")
     parser.add_argument("--sequence", action="store_true")
 
     args = parser.parse_args()
@@ -118,7 +124,7 @@ def parse_args_and_config():
         if not args.resume_training:
             renew_log_dir(args, tb_path, new_config)
 
-        new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
+        # new_config.tb_logger = tb.SummaryWriter(log_dir=tb_path)
     elif args.todo == 'sample':
         # os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
         if not os.path.exists(args.sample_output_dir):
@@ -164,7 +170,7 @@ def parse_args_and_config():
     if seed and torch.cuda.is_available():
         logging.info(f"  torch.cuda.manual_seed_all({seed})")
         torch.cuda.manual_seed_all(seed)
-    logging.info(f"final seed: torch.seed(): {torch.seed()}")
+    logging.info(f"final seed: torch.seed(): {torch.initial_seed()}")
 
     cudnn.benchmark = True
 
@@ -250,6 +256,10 @@ def main():
         elif args.todo == 'train_fast':
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionTrainingFast(args, config, device=config.device)
+            runner.train()
+        elif args.todo == 'train_sam':
+            logging.info(f"todo: {args.todo} ===================================")
+            runner = DiffusionTrainingSam(args, config, device=config.device)
             runner.train()
         elif args.todo == 'sample_fast':
             logging.info(f"{args.todo} ===================================")

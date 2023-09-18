@@ -852,7 +852,7 @@ def prediction_error_distribution():
     ]
     dim = 0
     for ts_list in ts_list_list:
-        fig = plt.figure(figsize=(12, 8))
+        fig = plt.figure(figsize=(12, 6))
         # ax = fig.add_subplot(1, 1, 1)
         bins = predefined_bins
         for ts in ts_list:
@@ -864,7 +864,7 @@ def prediction_error_distribution():
         # for
         set_plt_ui(dim+1)
         f_path = f"./output0_lostats/fig_delta_distribution_dim{dim:04d}_{ts_list[0]:03d}-{ts_list[-1]:03d}.png"
-        fig.savefig(f_path)
+        fig.savefig(f_path, bbox_inches='tight')
         print(f"saved file: {f_path}")
         plt.close()
     # for
