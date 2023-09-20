@@ -22,6 +22,7 @@ def parse_args_and_config():
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--todo", type=str, default='dpmSolver')
+    parser.add_argument("--ema_flag", type=str2bool, default=True)
     parser.add_argument("--ts_type", type=str, default='discrete', help="discrete|continuous")
     parser.add_argument("--repeat_times", type=int, default=5, help='run XX times to get avg FID')
     parser.add_argument("--dpm_order", type=int, default=0, help='force DPM order to be XX. 0 means ignore.')

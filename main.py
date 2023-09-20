@@ -170,7 +170,7 @@ def parse_args_and_config():
     if seed and torch.cuda.is_available():
         logging.info(f"  torch.cuda.manual_seed_all({seed})")
         torch.cuda.manual_seed_all(seed)
-    logging.info(f"final seed: torch.seed(): {torch.initial_seed()}")
+    logging.info(f"final seed: torch.initial_seed(): {torch.initial_seed()}")
 
     cudnn.benchmark = True
 

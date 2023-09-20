@@ -1,0 +1,49 @@
+#!/bin/bash
+
+set -e
+gpu="5"
+beta_schedule=linear
+sample_bs=5
+sample_count=5
+d_dd="./code_ddim"
+config=$d_dd/configs/cifar10.yml
+ckpt_path="../exp/ema-cifar10-model-790000.ckpt"
+aap_file="./res_aacum_0020_detail.txt"
+#aap_file="geometric_ratio:1"
+
+mkdir -p $d_dd
+cp -rf ../albar		$d_dd
+cp -rf ../configs 	$d_dd
+cp -rf ../datasets 	$d_dd
+cp -rf ../functions	$d_dd
+cp -rf ../models	$d_dd
+cp -rf ../runners	$d_dd
+cp -rf ../schedule	$d_dd
+cp     ../*.py		$d_dd
+
+pyshifeng -u $d_dd/main.py		\
+	--todo dpmSolver.alpha_bar_all	\
+	--fivar_coef False		\
+	--config $config		\
+	--exp    $d_dd/exp		\
+	--seed 0			\
+	--predefined_aap_file $aap_file	\
+	--beta_schedule $beta_schedule	\
+	--sample_batch_size $sample_bs	\
+	--sample_ckpt_path $ckpt_path	\
+	--sample_ckpt_dir ""		\
+	--sample_output_dir ./generated	\
+	--sample_count $sample_count	\
+	--sample_img_init_id 0		\
+	--gpu_ids $gpu
+
+
+: <<'CCCCC'
+echo $'\n\n'
+pyshifeng -u $d_dd/main_fid.py	\
+	--seed 0		\
+	--input1 cifar10-train	\
+	--input2 ./generated	\
+	--gpu_ids $gpu
+CCCCC
+
