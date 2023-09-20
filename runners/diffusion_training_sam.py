@@ -221,6 +221,21 @@ class DiffusionTrainingSam(Diffusion):
             ema_update_flag = self.ema_helper.update(self.model)
         return loss, xt, ema_update_flag
 
+    def calc_loss_on_ckpt_by_testing_data(self, ckpt_path_arr):
+        logging.info(f"calc_loss_on_ckpt_by_testing_data()...")
+        if ckpt_path_arr is None or len(ckpt_path_arr) == 0:
+            logging.info(f"ckpt_path_arr is None or empty.")
+            return
+        _, test_loader = self.get_data_loaders() # data loaders
+        self.init_models()                       # models, optimizer and others
+
+        for ckpt_path in ckpt_path_arr:
+            logging.info(f"load ckpt: {ckpt_path}")
+            states = torch.load(ckpt_path, map_location=self.device)
+            self.load_model(states)
+            self.test_and_save_result(0, test_loader)
+        # for
+
     def test_and_save_result(self, epoch, test_loader):
         ts_msg = f"ts_arr_arr[{len(self.ts_arr_arr)}, {len(self.ts_arr_arr[0])}]"
         logging.info(f"E{epoch}. calculate loss on test dataset...{ts_msg}")
