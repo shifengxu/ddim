@@ -125,6 +125,9 @@ def main():
             samples_find_deep=True,
         )
         log_fn(f"FID: {metrics_dict['frechet_inception_distance']:.6f}")
+        # log_fn(f"ISC mean: {metrics_dict['inception_score_mean']:.6f}")
+        # log_fn(f"ISC std : {metrics_dict['inception_score_std']:.6f}")
+
     else:
         mode_massive(dir1, dir2)
 

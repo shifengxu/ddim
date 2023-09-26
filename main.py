@@ -86,7 +86,7 @@ def parse_args_and_config():
     # training
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
     parser.add_argument('--ema_rate', type=float, default=0.99, help='mu in EMA. 0 means using value from config')
-    parser.add_argument('--ema_start_epoch', type=int, default=5, help='EMA start epoch')
+    parser.add_argument('--ema_start_epoch', type=int, default=0, help='EMA start epoch')
     parser.add_argument("--interpolation", action="store_true")
     parser.add_argument("--resume_training", type=str2bool, default=False)
     parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
@@ -261,6 +261,11 @@ def main():
             logging.info(f"todo: {args.todo} ===================================")
             runner = DiffusionTrainingSam(args, config, device=config.device)
             runner.train()
+            # ckpt_path_arr = [
+            #     'output5_sam_cifar10_ema0.9999/ddim_samFalse_E1499.pth',
+            #     'output0_tmp/ddim_E1499_samTrue_lr0.0001.pth',
+            # ]
+            # runner.calc_loss_on_ckpt_by_testing_data(ckpt_path_arr)  # delete me
         elif args.todo == 'sample_fast':
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionSamplingFast(args, config, device=config.device)

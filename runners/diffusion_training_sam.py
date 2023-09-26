@@ -195,20 +195,19 @@ class DiffusionTrainingSam(Diffusion):
         t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
         if self.sam_flag:
             # first forward-backward step
-            once_log(f"first forward-backward step")
+            once_log(f"SAM:first forward-backward step")
+            once_log(f"SAM:  enable_running_stats(self.model)")
+            enable_running_stats(self.model)
             loss, xt = noise_estimation_loss2(self.model, x_0_batch, t, epsilon, self.alphas_cumprod)
-            self.optimizer.zero_grad()
             loss.backward()
             self.optim_sam.first_step(zero_grad=True)
             # second forward-backward step
-            once_log(f"second forward-backward step")
-            once_log(f"  disable_running_stats(self.model)")
+            once_log(f"SAM:second forward-backward step")
+            once_log(f"SAM:  disable_running_stats(self.model)")
             disable_running_stats(self.model)
             loss, xt = noise_estimation_loss2(self.model, x_0_batch, t, epsilon, self.alphas_cumprod)
             loss.backward()
             self.optim_sam.second_step(zero_grad=True)
-            once_log(f"  enable_running_stats(self.model)")
-            enable_running_stats(self.model)
         else:
             loss, xt = noise_estimation_loss2(self.model, x_0_batch, t, epsilon, self.alphas_cumprod)
             self.optimizer.zero_grad()
@@ -255,6 +254,12 @@ class DiffusionTrainingSam(Diffusion):
         By ts_arr_arr, we can make sure that the testing process is deterministic.
         The first testing round will generate the timesteps. and the consequence
         testing rounds will reuse those timesteps.
+        Also, to make sure different servers and different running use the same timesteps,
+        we use the deterministic timestep for each image. For example, the timesteps for
+        each round may be like:
+        round 1: 0, 1, 2, 3, 4, 5, 6, 7, , , 999, 0, 1, 2, , , , ,
+        round 2: 300, 301, 302, 303, , , , , 999, 0, 1, 2, , , , ,
+        round 3: 600, 601, 602, 603, , , , , 999, 0, 1, 2, , , , ,
         :param model:
         :param test_loader:
         :param ts_arr_arr: timestep array
@@ -263,17 +268,22 @@ class DiffusionTrainingSam(Diffusion):
         loss_ttl = 0.
         loss_cnt = 0
         with torch.no_grad():
-            for ts_arr in ts_arr_arr:  # run multiple rounds, then get more accurate avg loss
-                for i, (x, y) in enumerate(test_loader):
+            for ri, ts_arr in enumerate(ts_arr_arr):  # run multiple rounds, then get more accurate avg loss
+                itr_end = ri * 300  # iterate ending index
+                for bi, (x, y) in enumerate(test_loader):
                     x = x.to(self.device)
                     x = data_transform(self.config, x)
                     e = torch.randn_like(x)
 
                     b_sz = x.size(0)  # batch size
-                    if len(ts_arr) > i:
-                        t = ts_arr[i]
+                    if len(ts_arr) > bi:
+                        t = ts_arr[bi]
                     else:
-                        t = torch.randint(low=self.ts_low, high=self.ts_high, size=(b_sz,), device=self.device)
+                        itr_start = itr_end  # iterate start index
+                        itr_end = itr_end + b_sz  # iterate ending index
+                        t = torch.arange(itr_start, itr_end, step=1, dtype=torch.int, device=self.device)
+                        t %= 1000
+                        logging.info(f"get_avg_loss() ri:{ri}, bi:{bi:2d}, t.len:{len(t)} => {t[0]:3d}~{t[-1]:3d}")
                         ts_arr.append(t)
                     loss, xt = noise_estimation_loss2(model, x, t, e, self.alphas_cumprod)
                     loss_ttl += loss.item()

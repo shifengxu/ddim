@@ -270,6 +270,7 @@ class DPM_Solver:
         log_fn(f"  dynamic_thresholding_ratio: {self.dynamic_thresholding_ratio}")
         log_fn(f"  use_predefined_ts         : {self.use_predefined_ts}")
         log_fn(f"  ts_type                   : {self.ts_type}")
+        self.log_epsilon_fptr = None
 
     def dynamic_thresholding_fn(self, x0, t):
         """
@@ -483,6 +484,11 @@ class DPM_Solver:
                 torch.exp(log_alpha_t - log_alpha_s) * x
                 - (sigma_t * phi_1) * model_s
             )
+            if self.log_epsilon_fptr:
+                b, c = 0, 2
+                f = lambda hh, ww: f"{x[b][c][hh][ww]:7.4f}\t{x_t[b][c][hh][ww]:7.4f}\t{model_s[b][c][hh][ww]:7.4f}"
+                self.log_epsilon_fptr.write(f"{f(2, 2)}\t\t{f(8, 8)}\t\t{f(18, 18)}\t\t{f(23, 23)}\t\t{f(28, 28)}\n")
+            # if
             if _batch_idx == 0:
                 if len(log_alpha_t.shape) > 0:
                     a, b, c, d = log_alpha_t[0], log_alpha_s[0], sigma_t[0], phi_1[0]
@@ -1193,12 +1199,12 @@ class DPM_Solver:
                 # This is for trajectory comparison in paper figure.
                 # For example, we track values for 1000 steps, 10 steps, 4 steps, then
                 # we know how these values changes in different trajectories.
-                # fptr = open(f"./output7_dpmSolver/dim_{steps:02d}.txt", 'w')
+                # track_xt_fptr = open(f"./output7_dpmSolver/dim_{steps:02d}.txt", 'w')
                 #
                 # def log_val(st, xt):
                 #     b, c = 16, 2
                 #     s = f"{(xt[b][c][18][18]+1)/2.0:9.6f} {(xt[b][c][12][21]+1)/2.0:9.6f}"
-                #     fptr.write(f"{s}\r\n")
+                #     track_xt_fptr.write(f"{s}\r\n")
                 #     log_fn(f"xxxxx value[{st}]:"
                 #            f"{s} "
                 #            f"{(xt[b][c][ 2][ 2]+1)/2.0:9.6f} "
@@ -1210,6 +1216,9 @@ class DPM_Solver:
                 #            f"{(xt[b][c][30][30]+1)/2.0:9.6f}")
                 #
                 # log_val('init', x)
+                #
+                # self.log_epsilon_fptr = open("./output0_tmp/epsilon_history.txt", 'w')
+                # log_fn(f"self.log_epsilon_fptr = open('./output0_tmp/epsilon_history.txt', 'w')")
                 for step, order in enumerate(orders):
                     s, t = timesteps_outer[step], timesteps_outer[step + 1]
                     t_idx = torch.arange(ts_cnt, ts_cnt+order+1, dtype=torch.long, device=device)
@@ -1228,7 +1237,11 @@ class DPM_Solver:
                     ts_cnt += order
                     # log_val(f"{step:4d}", x)
                 # for
-                # fptr.close()
+                if self.log_epsilon_fptr:
+                    self.log_epsilon_fptr.close()
+                    self.log_epsilon_fptr = None
+                    log_fn(f"self.log_epsilon_fptr.close()")
+                # track_xt_fptr.close()
             else:
                 raise ValueError("Got wrong method {}".format(method))
             if denoise_to_zero:
