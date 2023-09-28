@@ -22,6 +22,7 @@ class ModelWithTimestep:
         self.ts_high = ts_high
         self.ts_stride = ts_stride
         self.ckpt_path = None
+        self.index = -1 # index in mt stack
 
     def __call__(self, *args, **kwargs):
         return self.model(*args, **kwargs)
@@ -84,17 +85,17 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
             sys.exit(0)
         self.mt_stack.sort(key=lambda m: m.ts_low)
         mt_cnt = len(self.mt_stack)
-        logging.info(f"Loaded {mt_cnt} ModelWithTimestep")
+        logging.info(f"Loaded {mt_cnt} ModelWithTimestep . . .")
         for i in range(mt_cnt):
             mt = self.mt_stack[i]
-            logging.info(f"  mt_stack[{i}] {mt.ts_low:4d} ~ {mt.ts_high:4d}, {mt.ts_stride:3d}. {mt.ckpt_path}")
+            mt.index = i
+            logging.info(f"{i:3d} {mt.ts_low:4d} ~ {mt.ts_high:4d}, {mt.ts_stride:3d}. {mt.ckpt_path}")
 
     def sample(self):
         logging.info(f"DiffusionSamplingRectifiedFlow::sample()...")
         logging.info(f"  sample_output_dir : {self.args.sample_output_dir}")
         logging.info(f"  sample_ckpt_path  : {self.args.sample_ckpt_path}")
         logging.info(f"  sample_ckpt_dir   : {self.args.sample_ckpt_dir}")
-        logging.info(f"  num_timesteps     : {self.num_timesteps}")
         logging.info(f"  sample_count      : {self.sample_count}")
         logging.info(f"  ts_low            : {self.ts_low}")
         logging.info(f"  ts_high           : {self.ts_high}")
@@ -154,11 +155,11 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         with torch.no_grad():
             b_sz = len(x_T)
             xt = x_T
-            for ts_scalar in range(self.num_timesteps, 0, -self.ts_stride):
-                if r_idx == 0 and ts_scalar % 10 == 0:
-                    logging.info(f"generalized_steps_rf(): ts_scalar={ts_scalar:4d}")
+            for ts_scalar in range(self.ts_high, self.ts_low, -self.ts_stride):
                 t = (torch.ones(b_sz, device=self.device) * ts_scalar)
                 mt = self.find_mt(ts_scalar)
+                if r_idx == 0 and ts_scalar % 10 == 0:
+                    logging.info(f"generalized_steps_rf(): ts_scalar={ts_scalar:4d}, mt_{mt.index}")
                 grad = mt.model(xt, t)  # gradient
                 delta = self.ts_stride / (mt.ts_high - mt.ts_low)
                 delta = (torch.ones(b_sz, device=self.device) * delta).view(-1, 1, 1, 1)
