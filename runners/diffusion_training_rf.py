@@ -119,6 +119,45 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         cudnn.benchmark = True
         return e_cnt, start_epoch
 
+    def loss_stat(self):
+        # loss statistic
+        train_loader, test_loader = self.get_data_loaders() # data loaders
+        b_cnt = len(test_loader)
+        self.init_models()             # models, optimizer and others
+        model = self.model
+        model.eval()
+        loss_avg_arr = []
+        ts_list = list(range(self.ts_high, self.ts_low, -self.ts_stride))
+        ts_list.reverse()
+        ts_cnt = len(ts_list)
+        data_start = time.time()
+        logging.info(f"DiffusionTrainingRectifiedFlow::loss_stat()")
+        logging.info(f"  ts_low        : {self.ts_low}")
+        logging.info(f"  ts_high       : {self.ts_high}")
+        logging.info(f"  ts_stride     : {self.ts_stride}")
+        logging.info(f"  batch_size    : {self.args.batch_size}")
+        logging.info(f"  batch_count   : {b_cnt}")
+        logging.info(f"  ts_cnt        : {ts_cnt}")
+        for idx, ts_scalar in enumerate(ts_list):
+            elp, eta = utils.get_time_ttl_and_eta(data_start, idx, ts_cnt)
+            loss_ttl, loss_cnt = 0., 0
+            with torch.no_grad():
+                for bi, (x, y) in enumerate(test_loader):
+                    x = x.to(self.device)
+                    x = data_transform(self.config, x)
+                    ts_tensor = torch.ones(x.size(0), dtype=torch.long, device=self.device)
+                    ts_tensor *= ts_scalar
+                    loss = self.calc_loss(model, x, ts_tensor)
+                    loss_ttl += loss.item()
+                    loss_cnt += 1
+                # for loader
+            # with
+            loss_avg = loss_ttl / loss_cnt
+            loss_avg_arr.append(loss_avg)
+            logging.info(f"{idx:3d}/{ts_cnt} ts:{ts_scalar:4d}~{loss_avg:9.4f}; elp:{elp}, eta:{eta}")
+        # for ts
+        utils.output_list(loss_avg_arr, 'loss_avg')
+
     def train(self):
         args, config = self.args, self.config
         train_loader, test_loader = self.get_data_loaders() # data loaders
@@ -185,7 +224,7 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
             self._ts_log_flag = True
             logging.info(f"train_model() ttl_range=ts_high-ts_low: {ttl_range} = {self.ts_high} - {self.ts_low}")
             logging.info(f"train_model() rdm_range=ttl_range//ts_stride: {rdm_range} = {ttl_range} // {self.ts_stride}")
-            logging.info(f"train_model()t: len:{len(t)}, t[0~1]:{t[0]} {t[1]}, t[-2~-1]:{t[-2]} {t[-1]}")
+            logging.info(f"train_model() t: len:{len(t)}, t[0~1]:{t[0]} {t[1]}, t[-2~-1]:{t[-2]} {t[-1]}")
         self.optimizer.zero_grad()
         loss = self.calc_loss(self.model, x_0_batch, t)
         loss.backward()
@@ -220,14 +259,14 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         :param epsilon:
         :return:
         """
-        # if ts_scalar == 0:
-        #     return x_0_batch
-        # ts_scalar -= 1 # change max range from [1000, 1] to [999, 0]
-        # tensor_ts = torch.ones(x_0_batch.size(0)).long() * ts_scalar
-        # tensor_ts = tensor_ts.to(self.device)
-        # alpha_bar_t = self.alphas_cumprod.index_select(0, tensor_ts).view(-1, 1, 1, 1)
-        alpha_bar_t = (1000 - ts_scalar) / 1000
-        alpha_bar_t = torch.tensor(alpha_bar_t, device=self.device)
+        if ts_scalar == 0:
+            return x_0_batch
+        ts_scalar -= 1 # change max range from [1000, 1] to [999, 0]
+        tensor_ts = torch.ones(x_0_batch.size(0)).long() * ts_scalar
+        tensor_ts = tensor_ts.to(self.device)
+        alpha_bar_t = self.alphas_cumprod.index_select(0, tensor_ts).view(-1, 1, 1, 1)
+        # alpha_bar_t = (1000 - ts_scalar) / 1000
+        # alpha_bar_t = torch.tensor(alpha_bar_t, device=self.device)
         x_t = x_0_batch * alpha_bar_t.sqrt() + torch.mul(epsilon, (1 - alpha_bar_t).sqrt())
         return x_t
 

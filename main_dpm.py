@@ -17,7 +17,7 @@ torch.set_printoptions(sci_mode=False)
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description=globals()["__doc__"])
 
-    parser.add_argument("--config", type=str, default='./configs/bedroom.yml')
+    parser.add_argument("--config", type=str, default='./configs/cifar10.yml')
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--log_interval", type=int, default=10)
@@ -35,7 +35,7 @@ def parse_args_and_config():
     parser.add_argument("--ab_scheduled_dir", type=str, default='phase2_ab_sch', help='scheduled alpha_bar dir')
     parser.add_argument("--ab_summary_dir", type=str, default='phase3_ab_sum', help='alpha_bar summary dir')
     parser.add_argument("--sample_count", type=int, default='50', help="sample image count")
-    parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-lsun-bedroom-model-2388000.ckpt')
+    parser.add_argument("--sample_ckpt_path", type=str, default='./exp/ema-cifar10-model-790000.ckpt')
     parser.add_argument("--sample_batch_size", type=int, default=50, help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="./output7_vividvar/generated")
     # parser.add_argument("--predefined_aap_file", type=str, default="./output7_vividvar/res_aacum_0020.txt")

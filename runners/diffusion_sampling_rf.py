@@ -24,8 +24,11 @@ class ModelWithTimestep:
         self.ckpt_path = None
         self.index = -1 # index in mt stack
 
-    def __call__(self, *args, **kwargs):
-        return self.model(*args, **kwargs)
+    def __call__(self, x, ts, *args, **kwargs):
+        if not torch.is_tensor(ts) or len(ts.size()) == 0:
+            # scalar or single element tensor
+            ts = torch.ones(x.size(0), device=x.device) * ts
+        return self.model(x, ts, *args, **kwargs)
 # class
 
 class DiffusionSamplingRectifiedFlow(Diffusion):
@@ -92,6 +95,11 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
             logging.info(f"{i:3d} {mt.ts_low:4d} ~ {mt.ts_high:4d}, {mt.ts_stride:3d}. {mt.ckpt_path}")
 
     def sample(self):
+        config = self.config
+        self.init_mt_stack()
+
+        b_sz = self.args.sample_batch_size
+        n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
         logging.info(f"DiffusionSamplingRectifiedFlow::sample()...")
         logging.info(f"  sample_output_dir : {self.args.sample_output_dir}")
         logging.info(f"  sample_ckpt_path  : {self.args.sample_ckpt_path}")
@@ -100,15 +108,9 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         logging.info(f"  ts_low            : {self.ts_low}")
         logging.info(f"  ts_high           : {self.ts_high}")
         logging.info(f"  ts_stride         : {self.ts_stride}")
-        b_sz = self.args.sample_batch_size
-        n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
         logging.info(f"  batch_size        : {b_sz}")
         logging.info(f"  n_rounds          : {n_rounds}")
-
-        self.init_mt_stack()
-
         time_start = time.time()
-        config = self.config
         with torch.no_grad():
             for r_idx in range(n_rounds):
                 n = b_sz if r_idx + 1 < n_rounds else self.sample_count - r_idx * b_sz
@@ -121,6 +123,7 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
                     device=self.device,
                 )
                 x0 = self.generalized_steps_rf(x_t, r_idx)
+                # x0 = self.generalized_order2_rf(x_t, r_idx)
                 self.save_images(x0, config, time_start, n_rounds, r_idx, b_sz)
             # for r_idx
         # with
@@ -166,6 +169,26 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
                 xt_next = xt - grad * delta
                 xt = xt_next
             # for
+        # with
+        return xt
+
+    def generalized_order2_rf(self, x_T, r_idx=None):
+        b_sz = len(x_T)
+        xt = x_T
+        with torch.no_grad():
+            for mt in reversed(self.mt_stack):
+                for ts_scalar in range(mt.ts_high, mt.ts_low, -self.ts_stride):
+                    if r_idx == 0 and ts_scalar % 10 == 0:
+                        logging.info(f"generalized_order2_rf(): ts_scalar={ts_scalar:4d}, mt_{mt.index}")
+                    grad = mt(xt, ts_scalar)
+                    delta = self.ts_stride / (mt.ts_high - mt.ts_low)
+                    delta = (torch.ones(b_sz, device=self.device) * delta).view(-1, 1, 1, 1)
+                    x_half = xt - grad * delta / 2
+                    ts_half = ts_scalar - self.ts_stride / 2
+                    grad = mt(x_half, ts_half)
+                    xt = xt - grad * delta
+                # for ts_scalar
+            # for mt
         # with
         return xt
 

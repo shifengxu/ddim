@@ -21,7 +21,7 @@ def parse_args_and_config():
 
     parser.add_argument("--config", type=str, default='./configs/cifar10.yml')
     parser.add_argument("--todo", type=str, default='sample', help="train|sample")
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
     parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")
     parser.add_argument('--lr', type=float, default=0.0002, help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
@@ -30,11 +30,11 @@ def parse_args_and_config():
 
     # data
     parser.add_argument("--data_dir", type=str, default="./exp")
-    parser.add_argument("--batch_size", type=int, default=100, help="0 mean to use size from config file")
+    parser.add_argument("--batch_size", type=int, default=200, help="0 mean to use size from config file")
 
     # model
-    parser.add_argument('--ts_range', nargs='+', type=int, default=[500, 1000])
-    parser.add_argument('--ts_stride', type=int, default=250)
+    parser.add_argument('--ts_range', nargs='+', type=int, default=[0, 1000])
+    parser.add_argument('--ts_stride', type=int, default=100)
     parser.add_argument("--beta_schedule", type=str, default="linear")
     parser.add_argument("--save_ckpt_interval", type=int, default=50)
     parser.add_argument("--save_ckpt_dir", type=str, default='./output0_tmp')
@@ -43,7 +43,7 @@ def parse_args_and_config():
     parser.add_argument("--sample_count", type=int, default='50000', help="sample image count")
     parser.add_argument("--sample_batch_size", type=int, default=1000, help="0 mean from config file")
     parser.add_argument("--sample_ckpt_path", type=str, default='./output0_tmp/ckpt_rf_E0200.pth')
-    parser.add_argument("--sample_ckpt_dir", type=str, default='./output0_tmp')
+    parser.add_argument("--sample_ckpt_dir", type=str, default='')
     parser.add_argument("--sample_output_dir", type=str, default="./output0_tmp/generated_rf")
 
     # training
@@ -109,6 +109,9 @@ def main():
         elif args.todo == 'train':
             runner = DiffusionTrainingRectifiedFlow(args, config, device=config.device)
             runner.train()
+        elif args.todo == 'loss_stat':
+            runner = DiffusionTrainingRectifiedFlow(args, config, device=config.device)
+            runner.loss_stat()
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     except RuntimeError:

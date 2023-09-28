@@ -56,7 +56,7 @@ def parse_args_and_config():
     # model
     parser.add_argument("--timesteps", type=int, default=1000, help="number of steps involved")
     parser.add_argument('--ts_range', nargs='+', type=int, default=[], help='timestep range, such as [0, 200]')
-    parser.add_argument("--ts_type", type=str, default='continuous', help="discrete|continuous")
+    parser.add_argument("--ts_type", type=str, default='discrete', help="discrete|continuous")
     parser.add_argument("--skip_type", type=str, default="uniform", help="skip according to (uniform or quadratic)")
     parser.add_argument("--beta_schedule", type=str, default="linear")
     parser.add_argument("--eta", type=float, default=0.0, help="eta used to control the variances of sigma")
