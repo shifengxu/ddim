@@ -146,6 +146,11 @@ def dict2namespace(config):
 def create_geometric_series(start: float, end: float, ratio: float, count: int):
     """
     Create geometric series.
+    s = a + a*r + a*r^2 + a*r^3 + . . . + a*r^(n-1)
+    s = a * (r^n - 1) / (r - 1)
+    a = s * (r - 1) / (r^n - 1)
+    base = a / (r - 1) = s / (r^n - 1)
+    so, s(n) = base * (r^n - 1)
     :param start: start point, float. included in the result.
     :param end:   end point, float. included in the result.
     :param ratio: ratio
@@ -153,12 +158,12 @@ def create_geometric_series(start: float, end: float, ratio: float, count: int):
     :return:
     """
     res = [start]
-    sum = end - start
+    dist = end - start    # distance between start and end. Or, sum of elements
     item_cnt = count - 1  # item count. Because we include both start and end points.
     if ratio == 1.:
-        [res.append(start + sum * i / item_cnt) for i in range(1, item_cnt)]
+        [res.append(start + dist * i / item_cnt) for i in range(1, item_cnt)]
     else:
-        base = sum / (ratio ** item_cnt - 1)
+        base = dist / (ratio ** item_cnt - 1)
         [res.append(start + base * (ratio**i - 1)) for i in range(1, item_cnt)]
 
     res.append(end)  # include the end point by default

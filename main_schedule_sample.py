@@ -67,6 +67,7 @@ def parse_args_and_config():
     parser.add_argument("--sample_batch_size", type=int, default=5, help="0 mean from config file")
     parser.add_argument("--sample_output_dir", type=str, default="./output3_vubo_celeba_conti/generated")
     parser.add_argument("--fid_input1", type=str, default="./exp/datasets/celeba200K/50K")
+    parser.add_argument("--fid_subprocess", type=str2bool, default=False, help="use subprocess for FID")
     # parser.add_argument("--predefined_aap_file", type=str, default="./output7_vividvar/res_aacum_0020.txt")
     # parser.add_argument("--predefined_aap_file", type=str, default="geometric_ratio:1.07")
     # parser.add_argument("--predefined_aap_file", type=str, default="all_scheduled_dir:./exp/dpm_alphaBar.scheduled")

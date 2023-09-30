@@ -7,6 +7,8 @@ import logging
 import numpy as np
 import torch
 import torch_fidelity
+import subprocess
+import re
 
 import utils
 from datasets import inverse_data_transform
@@ -29,6 +31,7 @@ class DiffusionDpmSolver(Diffusion):
         self.order = order
         self.steps = steps
         self.skip_type = skip_type
+        self.fid_subprocess = args.fid_subprocess if hasattr(args, 'fid_subprocess') else False
 
     def save_images(self, config, x, time_start, r_idx, n_rounds, b_sz):
         x = inverse_data_transform(config, x)
@@ -232,17 +235,28 @@ class DiffusionDpmSolver(Diffusion):
             logging.info(f"{ss}-{i} => FID calculating...")
             logging.info(f"  input1: {input1}")
             logging.info(f"  input2: {input2}")
-            metrics_dict = torch_fidelity.calculate_metrics(
-                input1=input1,
-                input2=input2,
-                cuda=True,
-                isc=False,
-                fid=True,
-                kid=False,
-                verbose=False,
-                samples_find_deep=True,
-            )
-            fid = metrics_dict['frechet_inception_distance']
+            if args.fid_subprocess:
+                gpu = args.gpu_ids[0]
+                cmd = f"fidelity --gpu {gpu} --fid --input1 {input1} --input2 {input2} --silent"
+                logging.info(f"cmd: {cmd}")
+                cmd_arr = cmd.split(' ')
+                res = subprocess.run(cmd_arr, stdout=subprocess.PIPE)
+                output = str(res.stdout)
+                logging.info(f"out: {output}") # frechet_inception_distance: 16.5485\n
+                m = re.search(r'frechet_inception_distance: (\d+\.\d+)', output)
+                fid = float(m.group(1))
+            else:
+                metrics_dict = torch_fidelity.calculate_metrics(
+                    input1=input1,
+                    input2=input2,
+                    cuda=True,
+                    isc=False,
+                    fid=True,
+                    kid=False,
+                    verbose=False,
+                    samples_find_deep=True,
+                )
+                fid = metrics_dict['frechet_inception_distance']
             logging.info(f"{ss}-{i} => FID: {fid:.6f}")
             fid_arr.append(fid)
         # for

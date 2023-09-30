@@ -124,8 +124,7 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         train_loader, test_loader = self.get_data_loaders() # data loaders
         b_cnt = len(test_loader)
         self.init_models()             # models, optimizer and others
-        model = self.model
-        model.eval()
+        self.ts_stride = self.args.ts_stride # re-assign again. as load_model() will change it.
         loss_avg_arr = []
         ts_list = list(range(self.ts_high, self.ts_low, -self.ts_stride))
         ts_list.reverse()
@@ -138,6 +137,10 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         logging.info(f"  batch_size    : {self.args.batch_size}")
         logging.info(f"  batch_count   : {b_cnt}")
         logging.info(f"  ts_cnt        : {ts_cnt}")
+        logging.info(f"  model         : self.m_ema")
+        self.ema_helper.ema(self.m_ema)
+        model = self.m_ema
+        model.eval()
         for idx, ts_scalar in enumerate(ts_list):
             elp, eta = utils.get_time_ttl_and_eta(data_start, idx, ts_cnt)
             loss_ttl, loss_cnt = 0., 0

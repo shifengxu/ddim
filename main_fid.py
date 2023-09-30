@@ -15,7 +15,6 @@ log_fn = utils.log_info
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[7])
-    parser.add_argument("--seed", type=int, default=0, help="Random seed. 0 means ignore")
     parser.add_argument('--input1', type=str, default="./exp/psmpl_S4E1000TSxxx")
     parser.add_argument('--input2', type=str, default="./exp/psmpl_from_x0")
     parser.add_argument('--mode', type=str, default="simple")
@@ -30,17 +29,7 @@ def parse_args():
     # So it needs to be set before the cuda driver is initialized. It is best
     # if you make sure it is set before importing torch
     import torch
-
-    seed = args.seed  # if seed is 0. then ignore it.
-    log_fn(f"gpu_ids   : {gpu_ids}")
-    log_fn(f"args.seed : {seed}")
-    if seed:
-        log_fn(f"  torch.manual_seed({seed})")
-        torch.manual_seed(seed)
-    if seed and torch.cuda.is_available():
-        log_fn(f"  torch.cuda.manual_seed_all({seed})")
-        torch.cuda.manual_seed_all(seed)
-    log_fn(f"final seed: torch.seed(): {torch.seed()}")
+    log_fn(f"torch.cuda.is_available(): {torch.cuda.is_available()}")
     return args
 
 class FidDirCouple:
