@@ -140,7 +140,7 @@ class DiffusionDpmSolver(Diffusion):
             # for
         # for
         logging.info(f"fid_list:")
-        [logging.info(f"{fid:8.5f}: {key}") for dtstr, fid, key in fid_arr]
+        [logging.info(f"{fid:8.5f}: {key}") for dtstr, fid, fid_std, key in fid_arr]
 
     def sample_all_scheduled(self):
         args = self.args

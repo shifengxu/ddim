@@ -2,6 +2,8 @@ import argparse
 import datetime
 import os
 import time
+import re
+import subprocess
 import torch_fidelity
 import utils
 import torch
@@ -95,6 +97,31 @@ def mode_massive(dir1, dir2):
             log_fn(s)
             f.write(f"{s}\n")
     # with
+
+def calc_fid(gpu, fid_subprocess: bool=True, input1="cifar10-train", input2="./generated", logger=log_fn):
+    if fid_subprocess:
+        cmd = f"fidelity --gpu {gpu} --fid --input1 {input1} --input2 {input2} --silent"
+        logger(f"cmd: {cmd}")
+        cmd_arr = cmd.split(' ')
+        res = subprocess.run(cmd_arr, stdout=subprocess.PIPE)
+        output = str(res.stdout)
+        logger(f"out: {output}")  # frechet_inception_distance: 16.5485\n
+        m = re.search(r'frechet_inception_distance: (\d+\.\d+)', output)
+        fid = float(m.group(1))
+    else:
+        metrics_dict = torch_fidelity.calculate_metrics(
+            input1=input1,
+            input2=input2,
+            cuda=True,
+            isc=False,
+            fid=True,
+            kid=False,
+            verbose=False,
+            samples_find_deep=True,
+        )
+        fid = metrics_dict['frechet_inception_distance']
+    return fid
+
 
 def main():
     args = parse_args()

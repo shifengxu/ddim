@@ -37,6 +37,11 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         self.sample_count = self.args.sample_count
         self.ts_stride = args.ts_stride
         self.mt_stack = [] # ModelWithTimestep stack
+        self.predefined_ts_file = args.predefined_ts_file
+        self.predefined_ts_geometric = args.predefined_ts_geometric
+
+        # timestep array. make sure its last element is 0 ot ts_low, as x_0 is generated result
+        self.ts_arr = None
 
     def mt_load(self, ckpt_path):
         """load ModelWithTimestep"""
@@ -98,9 +103,23 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         config = self.config
         self.init_mt_stack()
 
+        if self.predefined_ts_geometric:
+            logging.info(f"Init ts_arr by predefined_ts_geometric: {self.predefined_ts_geometric}")
+            ratio = float(self.predefined_ts_geometric)
+            self.ts_arr = utils.create_geometric_series(0., 955., ratio, 11)
+            self.ts_arr.reverse()
+        elif self.predefined_ts_file:
+            logging.info(f"Init ts_arr by predefined_ts_file: {self.predefined_ts_file}")
+            self.ts_arr = self.load_predefined_ts_file()
+        else:
+            self.ts_arr = list(range(self.ts_high, self.ts_low, -self.ts_stride))
+            self.ts_arr.append(self.ts_low)
         b_sz = self.args.sample_batch_size
         n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
         logging.info(f"DiffusionSamplingRectifiedFlow::sample()...")
+        logging.info(f"  predefined_ts_geo : {self.predefined_ts_geometric}")
+        logging.info(f"  predefined_ts_file: {self.predefined_ts_file}")
+        logging.info(f"  sample_order      : {self.args.sample_order}")
         logging.info(f"  sample_output_dir : {self.args.sample_output_dir}")
         logging.info(f"  sample_ckpt_path  : {self.args.sample_ckpt_path}")
         logging.info(f"  sample_ckpt_dir   : {self.args.sample_ckpt_dir}")
@@ -122,8 +141,14 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
                     config.data.image_size,
                     device=self.device,
                 )
-                x0 = self.generalized_steps_rf(x_t, r_idx)
-                # x0 = self.generalized_order2_rf(x_t, r_idx)
+                if self.args.sample_order == 1:
+                    x0 = self.generalized_steps_rf(x_t, r_idx)
+                elif self.args.sample_order == 2:
+                    x0 = self.generalized_order2_rf(x_t, r_idx)
+                elif self.args.sample_order == 3:
+                    x0 = self.generalized_order3_rf(x_t, r_idx)
+                else:
+                    raise ValueError(f"Invalid sample_order: {self.args.sample_order}")
                 self.save_images(x0, config, time_start, n_rounds, r_idx, b_sz)
             # for r_idx
         # with
@@ -155,41 +180,151 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         raise ValueError(f"Cannot find mt for ts_scalar {ts_scalar}")
 
     def generalized_steps_rf(self, x_T, r_idx=None):
-        with torch.no_grad():
-            b_sz = len(x_T)
-            xt = x_T
-            for ts_scalar in range(self.ts_high, self.ts_low, -self.ts_stride):
-                t = (torch.ones(b_sz, device=self.device) * ts_scalar)
-                mt = self.find_mt(ts_scalar)
-                if r_idx == 0 and ts_scalar % 10 == 0:
-                    logging.info(f"generalized_steps_rf(): ts_scalar={ts_scalar:4d}, mt_{mt.index}")
-                grad = mt.model(xt, t)  # gradient
-                delta = self.ts_stride / (mt.ts_high - mt.ts_low)
-                delta = (torch.ones(b_sz, device=self.device) * delta).view(-1, 1, 1, 1)
-                xt_next = xt - grad * delta
-                xt = xt_next
-            # for
-        # with
+        """ sampling by ts_arr (timestep_arr) """
+        ts_arr = self.ts_arr
+        xt = x_T
+        ts_idx, last_idx = 0, len(ts_arr) - 1
+        while ts_idx < last_idx:
+            ts_a, ts_b = ts_arr[ts_idx:ts_idx+2]
+            mt = self.find_mt(ts_a)
+            if r_idx == 0:
+                logging.info(f"generalized_steps_rf()mt_{mt.index}: ts[{ts_idx:2d}]:{ts_a:7.2f} {ts_b:7.2f}")
+            xt = self.sample_by_phase1(ts_a, ts_b, xt, mt)
+            ts_idx += 1
+        # for
         return xt
 
     def generalized_order2_rf(self, x_T, r_idx=None):
-        b_sz = len(x_T)
+        ts_arr = self.ts_arr
         xt = x_T
-        with torch.no_grad():
-            for mt in reversed(self.mt_stack):
-                for ts_scalar in range(mt.ts_high, mt.ts_low, -self.ts_stride):
-                    if r_idx == 0 and ts_scalar % 10 == 0:
-                        logging.info(f"generalized_order2_rf(): ts_scalar={ts_scalar:4d}, mt_{mt.index}")
-                    grad = mt(xt, ts_scalar)
-                    delta = self.ts_stride / (mt.ts_high - mt.ts_low)
-                    delta = (torch.ones(b_sz, device=self.device) * delta).view(-1, 1, 1, 1)
-                    x_half = xt - grad * delta / 2
-                    ts_half = ts_scalar - self.ts_stride / 2
-                    grad = mt(x_half, ts_half)
-                    xt = xt - grad * delta
-                # for ts_scalar
-            # for mt
-        # with
+        ts_idx, last_idx = 0, len(ts_arr) - 1
+        while ts_idx < last_idx:
+            if ts_idx + 2 > last_idx:
+                break
+            ts_a, ts_b, ts_c = ts_arr[ts_idx:ts_idx+3]
+            mt = self.find_mt(ts_a)
+            if r_idx == 0:
+                logging.info(f"order2_rf()mt_{mt.index}: ts[{ts_idx:2d}]:{ts_a:7.2f} {ts_b:7.2f} {ts_c:7.2f}")
+            xt = self.sample_by_phase2(ts_a, ts_b, ts_c, xt, mt)
+            ts_idx += 2
+        # while
+        if ts_idx < last_idx:
+            # now ts_idx + 1 == last_idx
+            ts_a, ts_b = ts_arr[ts_idx:ts_idx+2]
+            mt = self.find_mt(ts_a)
+            if r_idx == 0:
+                logging.info(f"order2_rf()mt_{mt.index}: ts[{ts_idx:2d}]:{ts_a:7.2f} {ts_b:7.2f}")
+            xt = self.sample_by_phase1(ts_a, ts_b, xt, mt)
+            ts_idx += 1
+        # for
         return xt
+
+    def generalized_order3_rf(self, x_T, r_idx=None):
+        t_arr = self.ts_arr
+        xt = x_T
+        t_idx, last_idx = 0, len(t_arr) - 1
+        while t_idx < last_idx:
+            if t_idx + 4 > last_idx:
+                break
+            t_a, t_b, t_c, t_d = t_arr[t_idx:t_idx+4]
+            mt = self.find_mt(t_a)
+            if r_idx == 0:
+                logging.info(f"order3_rf()mt_{mt.index}: ts[{t_idx:2d}]:{t_a:7.2f} {t_b:7.2f} {t_c:7.2f} {t_d:7.2f}")
+            xt = self.sample_by_phase3(t_a, t_b, t_c, t_d, xt, mt)
+            t_idx += 3
+        # while
+        if t_idx + 3 == last_idx:   # phases: [3, 3, 3, , , 3, 2, 1]
+            t_a, t_b, t_c, t_d = t_arr[-4:]
+            mt = self.find_mt(t_a)
+            if r_idx == 0:
+                logging.info(f"order3_rf()mt_{mt.index}: ts[{t_idx:2d}]:{t_a:7.2f} {t_b:7.2f} {t_c:7.2f}")
+            xt = self.sample_by_phase2(t_a, t_b, t_c, xt, mt)
+            mt = self.find_mt(t_c)
+            if r_idx == 0:
+                logging.info(f"order3_rf()mt_{mt.index}: ts[{t_idx+2:2d}]:{t_c:7.2f} {t_d:7.2f}")
+            xt = self.sample_by_phase1(t_c, t_d, xt, mt)
+        elif t_idx + 2 == last_idx:   # phases: [3, 3, 3, , , 3, 2]
+            t_a, t_b, t_c = t_arr[-3:]
+            mt = self.find_mt(t_a)
+            if r_idx == 0:
+                logging.info(f"order3_rf()mt_{mt.index}: ts[{t_idx:2d}]:{t_a:7.2f} {t_b:7.2f} {t_c:7.2f}")
+            xt = self.sample_by_phase2(t_a, t_b, t_c, xt, mt)
+        elif t_idx + 1 == last_idx:   # phases: [3, 3, 3, , ,3, 1]
+            t_a, t_b = t_arr[-2:]
+            mt = self.find_mt(t_a)
+            if r_idx == 0:
+                logging.info(f"order3_rf()mt_{mt.index}: ts[{t_idx:2d}]:{t_a:7.2f} {t_b:7.2f}")
+            xt = self.sample_by_phase1(t_a, t_b, xt, mt)
+        else:
+            raise ValueError(f"Unexpected: t_idx:{t_idx}, last_idx:{last_idx}")
+        return xt
+
+    def sample_by_phase1(self, ts_a, ts_b, xt, mt):
+        grad = mt(xt, ts_a)  # gradient
+        delta = (ts_a - ts_b) / (mt.ts_high - mt.ts_low)
+        delta = (torch.ones(1, device=self.device) * delta).view(-1, 1, 1, 1)
+        xt_next = xt - grad * delta
+        return xt_next
+
+    def sample_by_phase2(self, ts_a, ts_b, ts_c, xt, mt):
+        grad_a = mt(xt, ts_a)       # gradient at ts_a
+        delta = (ts_a - ts_b) / (mt.ts_high - mt.ts_low)
+        delta = (torch.ones(1, device=self.device) * delta).view(-1, 1, 1, 1)
+        xt_b = xt - grad_a * delta  # xt at ts_b
+        grad_b = mt(xt_b, ts_b)     # gradient at ts_b
+        delta = (ts_a - ts_c) / (mt.ts_high - mt.ts_low)
+        delta = (torch.ones(1, device=self.device) * delta).view(-1, 1, 1, 1)
+        xt_next = xt - grad_b * delta
+        return xt_next
+
+    def sample_by_phase3(self, ts_a, ts_b, ts_c, ts_d, xt, mt):
+        # use some schema similar with Simpson's rule:
+        # grad = (g(a) + 3*g(b) + 2*g(c)) / 6
+        grad_a = mt(xt, ts_a)       # gradient at ts_a
+        delta = (ts_a - ts_b) / (mt.ts_high - mt.ts_low)
+        delta = (torch.ones(1, device=self.device) * delta).view(-1, 1, 1, 1)
+        xt_b = xt - grad_a * delta  # xt at ts_b
+        grad_b = mt(xt_b, ts_b)     # gradient at ts_b
+        delta = (ts_b - ts_c) / (mt.ts_high - mt.ts_low)
+        delta = (torch.ones(1, device=self.device) * delta).view(-1, 1, 1, 1)
+        xt_c = xt_b - grad_b * delta
+        grad_c = mt(xt_c, ts_c)
+        grad = (grad_a + 3 * grad_b + 2 * grad_c) / 6
+        delta = (ts_a - ts_d) / (mt.ts_high - mt.ts_low)
+        delta = (torch.ones(1, device=self.device) * delta).view(-1, 1, 1, 1)
+        xt_next = xt - grad * delta
+        return xt_next
+
+    def load_predefined_ts_file(self):
+        f_path = self.predefined_ts_file
+        if not os.path.exists(f_path):
+            raise Exception(f"File not found: {f_path}")
+        if not os.path.isfile(f_path):
+            raise Exception(f"Not file: {f_path}")
+        logging.info(f"load_predefined_ts_file(): {f_path}")
+        with open(f_path, 'r') as f_ptr:
+            lines = f_ptr.readlines()
+        cnt_empty = 0
+        cnt_comment = 0
+        ts_arr = []  # alpha_bar array
+        for line in lines:
+            line = line.strip()
+            if line == '':              # empty line
+                cnt_empty += 1
+                continue
+            elif line.startswith('#'):  # line is like "# order     : 2"
+                cnt_comment += 1
+                continue
+            arr = line.split(':')
+            ts_arr.append(float(arr[0]))
+        ab2s = lambda ff: ' '.join([f"{f:8.6f}" for f in ff])
+        logging.info(f"  cnt_empty  : {cnt_empty}")
+        logging.info(f"  cnt_comment: {cnt_comment}")
+        logging.info(f"  cnt_valid  : {len(ts_arr)}")
+        logging.info(f"  ab[:4]     : [{ab2s(ts_arr[:4])}]")
+        logging.info(f"  ab[-4:]    : [{ab2s(ts_arr[-4:])}]")
+        ts_arr.append(0)
+        logging.info(f"  append 0 to ts_arr. New len: {len(ts_arr)}")
+        return ts_arr
 
 # class

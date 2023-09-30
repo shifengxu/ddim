@@ -9,6 +9,7 @@ import torch
 import numpy as np
 import torch.backends.cudnn as cudnn
 
+from main_fid import calc_fid
 from runners.diffusion_sampling_rf import DiffusionSamplingRectifiedFlow
 from runners.diffusion_training_rf import DiffusionTrainingRectifiedFlow
 from utils import str2bool, dict2namespace
@@ -45,6 +46,9 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_path", type=str, default='./output0_tmp/ckpt_rf_E0200.pth')
     parser.add_argument("--sample_ckpt_dir", type=str, default='')
     parser.add_argument("--sample_output_dir", type=str, default="./output0_tmp/generated_rf")
+    parser.add_argument("--predefined_ts_geometric", type=str, default="")
+    parser.add_argument("--predefined_ts_file", type=str, default="")
+    parser.add_argument("--sample_order", type=int, default=1, help="1|2|3")
 
     # training
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
@@ -95,6 +99,52 @@ def parse_args_and_config():
 
     return args, new_config
 
+def sample_all(args, config):
+    result_file = "./sample_all_result_rf.txt"
+    geometric_arr = ['1.04', '1.06', '1.08', '']
+    ts_file_arr = ['', './predefined_ts_file.txt']
+    order_arr = [1, 2, 3]
+    logging.info(f"main_rectified_flow::sample_all()")
+    logging.info(f"geometric_arr: {geometric_arr}")
+    logging.info(f"ts_file_arr  : {ts_file_arr}")
+    logging.info(f"order_arr    : {order_arr}")
+    res_arr = []
+    args.predefined_ts_file = None
+    for geo in geometric_arr:
+        args.predefined_ts_geometric = geo
+        for order in order_arr:
+            args.sample_order = order
+            runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
+            runner.sample()
+            fid = calc_fid(args.gpu_ids[0], True)
+            msg = f"FFFFF. order:{order}, FID: {fid:.4f}. predefined_ts_geometric: {geo}"
+            res_arr.append(msg)
+            with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
+            logging.info(msg)
+            logging.info("")
+            logging.info("")
+            logging.info("")
+        # for
+    # for
+    args.predefined_ts_geometric = None
+    for tf in ts_file_arr:
+        args.predefined_ts_file = tf
+        for order in order_arr:
+            args.sample_order = order
+            runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
+            runner.sample()
+            fid = calc_fid(args.gpu_ids[0], True)
+            msg = f"FFFFF. order:{order}, FID: {fid:.4f} predefined_ts_file: {tf}"
+            res_arr.append(msg)
+            with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
+            logging.info(msg)
+            logging.info("")
+            logging.info("")
+            logging.info("")
+        # for
+    # for
+    [logging.info(f"{msg}") for msg in res_arr]
+
 def main():
     args, config = parse_args_and_config()
     logging.info(f"pid : {os.getpid()}")
@@ -106,6 +156,8 @@ def main():
         if args.todo == 'sample':
             runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
             runner.sample()
+        elif args.todo == 'sample_all':
+            sample_all(args, config)
         elif args.todo == 'train':
             runner = DiffusionTrainingRectifiedFlow(args, config, device=config.device)
             runner.train()
