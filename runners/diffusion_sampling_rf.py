@@ -99,14 +99,16 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
             mt.index = i
             logging.info(f"{i:3d} {mt.ts_low:4d} ~ {mt.ts_high:4d}, {mt.ts_stride:3d}. {mt.ckpt_path}")
 
-    def sample(self):
+    def sample(self, ts_arr=None):
         config = self.config
         self.init_mt_stack()
 
-        if self.predefined_ts_geometric:
+        if ts_arr is not None:
+            self.ts_arr = ts_arr
+        elif self.predefined_ts_geometric:
             logging.info(f"Init ts_arr by predefined_ts_geometric: {self.predefined_ts_geometric}")
             ratio = float(self.predefined_ts_geometric)
-            self.ts_arr = utils.create_geometric_series(0., 955., ratio, 11)
+            self.ts_arr = utils.create_geometric_series(0., 940., ratio, 11)
             self.ts_arr.reverse()
         elif self.predefined_ts_file:
             logging.info(f"Init ts_arr by predefined_ts_file: {self.predefined_ts_file}")
