@@ -173,6 +173,8 @@ def schedule_and_sample(args, config):
             if ssr_best is None or ssr_best.fid > fid_avg:
                 ssr_best = ssr
             # if
+            log_fn(f"")  # put some blank lines in log file
+            log_fn(f"")
         # for
         fid_best.append(ssr_best)
         output_ssr_list(fid_best, fid_best_file)

@@ -179,6 +179,8 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         logging.info(f"  test_interval : {test_interval}")
         logging.info(f"  ts_range      : {args.ts_range}")
         logging.info(f"  ts_stride     : {self.ts_stride}")
+        logging.info(f"  loss_dual     : {args.loss_dual}")
+        logging.info(f"  loss_lambda   : {args.loss_lambda}")
         for epoch in range(start_epoch, e_cnt):
             lr = self.scheduler.get_last_lr()[0]
             msg = f"lr={lr:8.7f}; ts=[{self.ts_low}, {self.ts_high}];"
@@ -191,14 +193,16 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
             for i, (x, y) in enumerate(train_loader):
                 x = x.to(self.device)
                 x = data_transform(self.config, x)
-                loss, upd_flag = self.train_model(x, epoch)
+                loss, loss_adj, upd_flag = self.train_model(x, epoch)
                 loss_ttl += loss.item()
                 loss_cnt += 1
                 ema_cnt += upd_flag
 
                 if i % log_interval == 0 or i == b_cnt - 1:
                     elp, eta = utils.get_time_ttl_and_eta(data_start, (epoch-start_epoch)*b_cnt+i, eb_cnt)
-                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} loss:{loss.item():8.4f}; elp:{elp}, eta:{eta}")
+                    loss_str = f"loss:{loss.item():8.4f}"
+                    if self.args.loss_dual: loss_str += f", loss_adj:{loss_adj:8.4f}"
+                    logging.info(f"E{epoch}.B{i:03d}/{b_cnt} {loss_str}; elp:{elp}, eta:{eta}")
             # for loader
             loss_avg = loss_ttl / loss_cnt
             logging.info(f"E:{epoch}/{e_cnt}: avg_loss:{loss_avg:8.4f} . ema_cnt:{ema_cnt}")
@@ -229,7 +233,16 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
             logging.info(f"train_model() rdm_range=ttl_range//ts_stride: {rdm_range} = {ttl_range} // {self.ts_stride}")
             logging.info(f"train_model() t: len:{len(t)}, t[0~1]:{t[0]} {t[1]}, t[-2~-1]:{t[-2]} {t[-1]}")
         self.optimizer.zero_grad()
-        loss = self.calc_loss(self.model, x_0_batch, t)
+        if self.args.loss_dual:
+            t2 = torch.randint(low=0, high=rdm_range, size=(b_sz,), device=self.device)
+            t2 += 1
+            t2 *= self.ts_stride
+            t2 += self.ts_low
+            loss, loss_adj = self.calc_loss_dual(self.model, x_0_batch, t, t2)
+            loss += loss_adj
+        else:
+            loss = self.calc_loss(self.model, x_0_batch, t)
+            loss_adj = 0
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), config.optim.grad_clip)
         self.optimizer.step()
@@ -237,7 +250,7 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         ema_update_flag = 0
         if self.ema_flag and epoch >= self.ema_start_epoch:
             ema_update_flag = self.ema_helper.update(self.model)
-        return loss, ema_update_flag
+        return loss, loss_adj, ema_update_flag
 
     def calc_loss(self, model, x_0_batch, t):
         epsilon = torch.randn_like(x_0_batch)
@@ -250,6 +263,27 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
         output = model(z_t, t)
         loss = (output - target).square().sum(dim=(1, 2, 3)).mean(dim=0)
         return loss
+
+    def calc_loss_dual(self, model, x_0_batch, t1, t2):
+        epsilon = torch.randn_like(x_0_batch)
+        z_0 = self.get_xt(x_0_batch, self.ts_low, epsilon)
+        z_1 = self.get_xt(x_0_batch, self.ts_high, epsilon)
+        target = z_1 - z_0
+        cursor1 = torch.sub(t1, self.ts_low) / (self.ts_high - self.ts_low)
+        cursor1 = cursor1.view(-1, 1, 1, 1)
+        z_t = z_0 * (1 - cursor1) + z_1 * cursor1
+        output1 = model(z_t, t1)
+        loss1 = (output1 - target).square().sum(dim=(1, 2, 3)).mean(dim=0)
+
+        cursor2 = torch.sub(t2, self.ts_low) / (self.ts_high - self.ts_low)
+        cursor2 = cursor2.view(-1, 1, 1, 1)
+        z_t = z_0 * (1 - cursor2) + z_1 * cursor1
+        output2 = model(z_t, t2)
+        loss2 = (output2 - target).square().sum(dim=(1, 2, 3)).mean(dim=0)
+        loss = (loss1 + loss2) / 2
+        loss_adj = (output1 - output2).square().sum(dim=(1, 2, 3)).mean(dim=0)
+        loss_adj *= self.args.loss_lambda
+        return loss, loss_adj
 
     def get_xt(self, x_0_batch, ts_scalar, epsilon):
         """

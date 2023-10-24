@@ -106,9 +106,10 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         if ts_arr is not None:
             self.ts_arr = ts_arr
         elif self.predefined_ts_geometric:
-            logging.info(f"Init ts_arr by predefined_ts_geometric: {self.predefined_ts_geometric}")
             ratio = float(self.predefined_ts_geometric)
-            self.ts_arr = utils.create_geometric_series(0., 940., ratio, 11)
+            count = self.args.predefined_ts_count + 1 # plus 1: to add the bound
+            logging.info(f"Init ts_arr by predefined_ts_geometric: {ratio:.3f}, count={count}")
+            self.ts_arr = utils.create_geometric_series(0., 940., ratio, count)
             self.ts_arr.reverse()
         elif self.predefined_ts_file:
             logging.info(f"Init ts_arr by predefined_ts_file: {self.predefined_ts_file}")

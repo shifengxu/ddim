@@ -23,13 +23,15 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, index):
         img_path = self.img_path_arr[index]
-        image = np.array(Image.open(img_path).convert("RGB"))
+        image = Image.open(img_path)
+        img_rgb = image.convert("RGB")
         target = 0  # label, or class index
         if self.transform:
-            image = self.transform(image)
+            img_rgb = self.transform(img_rgb)
         if self.target_transform:
             target = self.target_transform(target)
-        return image, target
+        img_rgb = np.array(img_rgb)
+        return img_rgb, target
 
     def __len__(self):
         return len(self.img_path_arr)

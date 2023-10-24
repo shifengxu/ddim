@@ -12,6 +12,7 @@ import torch.backends.cudnn as cudnn
 from main_fid import calc_fid
 from runners.diffusion_sampling_rf import DiffusionSamplingRectifiedFlow
 from runners.diffusion_training_rf import DiffusionTrainingRectifiedFlow
+from runners.kl_divergence import KullbackLeiblerDivergence
 from schedule_rf.linear_interpreter import LinearInterpreter
 from schedule_rf.scheduler_rf import ScheduleRectifiedFlow
 from utils import str2bool, dict2namespace
@@ -49,6 +50,7 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_dir", type=str, default='')
     parser.add_argument("--sample_output_dir", type=str, default="./output0_tmp/generated_rf")
     parser.add_argument("--predefined_ts_geometric", type=str, default="")
+    parser.add_argument("--predefined_ts_count", type=int, default=10)
     parser.add_argument("--predefined_ts_file", type=str, default="")
     # parser.add_argument("--predefined_ts_geometric", type=str, default="1.07")
     # parser.add_argument("--predefined_ts_file", type=str, default="./output7_rectified_flow/predefined_ts_file.txt")
@@ -61,6 +63,8 @@ def parse_args_and_config():
     parser.add_argument('--ema_start_epoch', type=int, default=0, help='EMA start epoch')
     parser.add_argument("--resume_training", type=str2bool, default=False)
     parser.add_argument("--resume_ckpt", type=str, default="./exp/logs/doc/ckpt.pth")
+    parser.add_argument("--loss_dual", type=str2bool, default=False, help="use dual loss")
+    parser.add_argument("--loss_lambda", type=float, default=0.1, help="lambda when dual loss")
 
     # scheduler
     parser.add_argument('--sch_lr', type=float, default=0.000001)
@@ -116,8 +120,12 @@ def parse_args_and_config():
     return args, new_config
 
 def sample_all(args, config):
-    result_file = "./sample_all_result_rf.txt"
-    geometric_arr = ['0.90', '0.91']
+    basename = os.path.basename(args.sample_ckpt_path)
+    stem, ext = os.path.splitext(basename)
+    result_file = f"./sample_all_rf_steps{args.predefined_ts_count:02d}_{stem}.txt"
+    geometric_arr = ['0.80', '0.81', '0.82', '0.83', '0.84', '0.85', '0.86', '0.87', '0.88', '0.89']
+    geometric_arr += ['0.90', '0.91', '0.92', '0.93', '0.94', '0.95', '0.96', '0.97', '0.99', '0.99']
+    geometric_arr += ['1.00', '1.01', '1.02', '1.03', '1.04', '1.05', '1.06', '1.07', '1.09', '1.09']
     ts_file_arr = ['', './predefined_ts_file.txt']
     order_arr = [1, 2, 3]
     logging.info(f"main_rectified_flow::sample_all()")
@@ -132,6 +140,7 @@ def sample_all(args, config):
             args.sample_order = order
             runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
             runner.sample()
+            del runner  # to save GPU memory
             fid = calc_fid(args.gpu_ids[0], True)
             msg = f"FFFFF. order:{order}, FID: {fid:7.4f}. predefined_ts_geometric: {geo}"
             res_arr.append(msg)
@@ -203,6 +212,20 @@ def schedule_sample(args, config):
     # for
     [logging.info(f"{msg}") for msg in res_arr]
 
+def kl_div(args, config):
+    # runner = KullbackLeiblerDivergence(args, config)
+
+    args.sample_ckpt_path = "./output7_rectified_flow/ckpt_rf_E500_dual_loss0.1.pth"
+    runner = KullbackLeiblerDivergence(args, config)
+    # runner.calc_grad_similarity()
+    # runner.save_image_gt_x0()
+    # runner.save_image_gt_xt(ts2)
+    # runner.predict_save_image(0.6, 0.4)
+    # runner.predict_seq_save_image([0.6, 0.5, 0.4])
+    dir1 = "./output4_kl_div/img_gt_x0.600"
+    dir2 = "./output4_kl_div/img_pr_x0.800-0.600"
+    runner.calc_kl_div(dir1, dir2)
+
 def main():
     args, config = parse_args_and_config()
     logging.info(f"pid : {os.getpid()}")
@@ -224,6 +247,8 @@ def main():
         elif args.todo == 'loss_stat':
             runner = DiffusionTrainingRectifiedFlow(args, config, device=config.device)
             runner.loss_stat()
+        elif args.todo == 'kl_div':
+            kl_div(args, config)
         else:
             raise Exception(f"Invalid todo: {args.todo}")
     except RuntimeError:
