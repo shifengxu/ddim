@@ -49,13 +49,13 @@ def parse_args_and_config():
     parser.add_argument("--sample_ckpt_path", type=str, default='./output0_tmp/ckpt_rf_E0200.pth')
     parser.add_argument("--sample_ckpt_dir", type=str, default='')
     parser.add_argument("--sample_output_dir", type=str, default="./output0_tmp/generated_rf")
-    parser.add_argument("--predefined_ts_geometric", type=str, default="")
-    parser.add_argument("--predefined_ts_count", type=int, default=10)
     parser.add_argument("--predefined_ts_file", type=str, default="")
-    # parser.add_argument("--predefined_ts_geometric", type=str, default="1.07")
     # parser.add_argument("--predefined_ts_file", type=str, default="./output7_rectified_flow/predefined_ts_file.txt")
     parser.add_argument("--sample_order", type=int, default=1, help="1|2|3")
     parser.add_argument("--sample_order_arr", nargs='*', type=int, default=[], help="1|2|3")
+    parser.add_argument("--sample_steps_arr", nargs='*', type=int, default=[])
+    parser.add_argument("--sample_geometric_arr", nargs='*', type=float, default=[0.9])
+    parser.add_argument("--sample_init_ts_arr", nargs='*', type=int, default=[940])
 
     # training
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
@@ -120,38 +120,43 @@ def parse_args_and_config():
     return args, new_config
 
 def sample_all(args, config):
+    steps_arr     = args.sample_steps_arr
+    init_ts_arr   = args.sample_init_ts_arr
+    geometric_arr = args.sample_geometric_arr or np.linspace(0.80, 1.10, 31)
+    order_arr     = args.sample_order_arr or [1, 2, 3]
     basename = os.path.basename(args.sample_ckpt_path)
     stem, ext = os.path.splitext(basename)
-    result_file = f"./sample_all_rf_steps{args.predefined_ts_count:02d}_{stem}.txt"
-    geometric_arr = ['0.80', '0.81', '0.82', '0.83', '0.84', '0.85', '0.86', '0.87', '0.88', '0.89']
-    geometric_arr += ['0.90', '0.91', '0.92', '0.93', '0.94', '0.95', '0.96', '0.97', '0.99', '0.99']
-    geometric_arr += ['1.00', '1.01', '1.02', '1.03', '1.04', '1.05', '1.06', '1.07', '1.09', '1.09']
-    ts_file_arr = ['', './predefined_ts_file.txt']
-    order_arr = [1, 2, 3]
+    result_file = f"./sample_all_rf_{stem}.txt"
     logging.info(f"main_rectified_flow::sample_all()")
+    logging.info(f"steps_arr    : {steps_arr}")
+    logging.info(f"init_ts_arr  : {init_ts_arr}")
     logging.info(f"geometric_arr: {geometric_arr}")
-    logging.info(f"ts_file_arr  : {ts_file_arr}")
     logging.info(f"order_arr    : {order_arr}")
+    logging.info(f"result_file  : {result_file}")
     res_arr = []
     args.predefined_ts_file = None
-    for geo in geometric_arr:
-        args.predefined_ts_geometric = geo
-        for order in order_arr:
-            args.sample_order = order
-            runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
-            runner.sample()
-            del runner  # to save GPU memory
-            fid = calc_fid(args.gpu_ids[0], True)
-            msg = f"FFFFF. order:{order}, FID: {fid:7.4f}. predefined_ts_geometric: {geo}"
-            res_arr.append(msg)
-            with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
-            logging.info(msg)
-            logging.info("")
-            logging.info("")
-            logging.info("")
+    for steps in steps_arr:
+        for init_ts in init_ts_arr:
+            for geo in geometric_arr:
+                for order in order_arr:
+                    args.sample_order = order
+                    runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
+                    runner.sample(ts_geometric=geo, steps=steps, init_ts=init_ts)
+                    del runner  # to save GPU memory
+                    fid = calc_fid(args.gpu_ids[0], True)
+                    msg = f"FID: {fid:7.3f}. steps:{steps}, init_ts:{init_ts},  geo:{geo}, order:{order}"
+                    res_arr.append(msg)
+                    with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
+                    logging.info(msg)
+                    logging.info("")
+                    logging.info("")
+                    logging.info("")
+                # for
+            # for
         # for
     # for
-    # args.predefined_ts_geometric = None
+
+    # ts_file_arr = ['', './predefined_ts_file.txt']
     # for tf in ts_file_arr:
     #     args.predefined_ts_file = tf
     #     for order in order_arr:
@@ -232,7 +237,7 @@ def main():
     logging.info(f"cwd : {os.getcwd()}")
     logging.info(f"args: {args}")
 
-    logging.info(f"main_rectified_flow::{args.todo} ===================================")
+    logging.info(f"main_rectified_flow -> {args.todo} ===================================")
     try:
         if args.todo == 'sample':
             runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)

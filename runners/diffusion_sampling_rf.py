@@ -38,7 +38,6 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         self.ts_stride = args.ts_stride
         self.mt_stack = [] # ModelWithTimestep stack
         self.predefined_ts_file = args.predefined_ts_file
-        self.predefined_ts_geometric = args.predefined_ts_geometric
 
         # timestep array. make sure its last element is 0 ot ts_low, as x_0 is generated result
         self.ts_arr = None
@@ -99,28 +98,33 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
             mt.index = i
             logging.info(f"{i:3d} {mt.ts_low:4d} ~ {mt.ts_high:4d}, {mt.ts_stride:3d}. {mt.ckpt_path}")
 
-    def sample(self, ts_arr=None):
+    def sample(self, ts_arr=None, ts_geometric=None, steps=10, init_ts=940):
         config = self.config
         self.init_mt_stack()
 
         if ts_arr is not None:
             self.ts_arr = ts_arr
-        elif self.predefined_ts_geometric:
-            ratio = float(self.predefined_ts_geometric)
-            count = self.args.predefined_ts_count + 1 # plus 1: to add the bound
-            logging.info(f"Init ts_arr by predefined_ts_geometric: {ratio:.3f}, count={count}")
-            self.ts_arr = utils.create_geometric_series(0., 940., ratio, count)
+        elif ts_geometric:
+            ratio = float(ts_geometric)
+            count = steps + 1 # plus 1: to add the bound
+            logging.info(f"Init ts_arr by ts_geometric: {ratio:.3f}, count={count}")
+            self.ts_arr = utils.create_geometric_series(0., init_ts, ratio, count)
             self.ts_arr.reverse()
         elif self.predefined_ts_file:
             logging.info(f"Init ts_arr by predefined_ts_file: {self.predefined_ts_file}")
             self.ts_arr = self.load_predefined_ts_file()
         else:
+            logging.info(f"Init ts_arr by ts_high: {self.ts_high}, ts_low: {self.ts_low}")
             self.ts_arr = list(range(self.ts_high, self.ts_low, -self.ts_stride))
             self.ts_arr.append(self.ts_low)
         b_sz = self.args.sample_batch_size
         n_rounds = (self.sample_count - 1) // b_sz + 1  # get the ceiling
+        arr2str = lambda arr: " ".join([f"{a:.1f}" for a in arr])
         logging.info(f"DiffusionSamplingRectifiedFlow::sample()...")
-        logging.info(f"  predefined_ts_geo : {self.predefined_ts_geometric}")
+        logging.info(f"  param:ts_arr      : {ts_arr}")
+        logging.info(f"  param:ts_geometric: {ts_geometric}")
+        logging.info(f"  param:steps       : {steps}")
+        logging.info(f"  param:init_ts     : {init_ts}")
         logging.info(f"  predefined_ts_file: {self.predefined_ts_file}")
         logging.info(f"  sample_order      : {self.args.sample_order}")
         logging.info(f"  sample_output_dir : {self.args.sample_output_dir}")
@@ -132,6 +136,8 @@ class DiffusionSamplingRectifiedFlow(Diffusion):
         logging.info(f"  ts_stride         : {self.ts_stride}")
         logging.info(f"  batch_size        : {b_sz}")
         logging.info(f"  n_rounds          : {n_rounds}")
+        logging.info(f"  final ts_arr len  : {len(self.ts_arr)}")
+        logging.info(f"  final ts_arr      : [{arr2str(self.ts_arr)}]")
         time_start = time.time()
         with torch.no_grad():
             for r_idx in range(n_rounds):
