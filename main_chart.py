@@ -1,3 +1,4 @@
+import math
 import os.path
 
 import numpy as np
@@ -263,7 +264,7 @@ def mse_error_vs_alpha_bar():
                  0.0880,   0.0870,   0.0861,   0.0848,   0.0835,   0.0821,   0.0806,   0.0802,   0.0788,   0.0775,
                  0.0763,   0.0755,   0.0742,   0.0732,   0.0725,   0.0711,   0.0704,   0.0697,   0.0689,   0.0679,
                  0.0671,   0.0662,   0.0652,   0.0644,   0.0632,   0.0626,   0.0617,   0.0612,   0.0606,   0.0594,
-                 0.0590,   0.0581,   0.0576,   0.0570,   0.0562,   0.0555,   0.0549,   0.0545,   0.0539,   0.0534,]
+                 0.0590,   0.0581,   0.0576,   0.0570,   0.0562,   0.0555,   0.0549,   0.0545,   0.0539,   0.0534, ]
     alpha_bar = [0.999900, 0.999780, 0.999640, 0.999481, 0.999301, 0.999102, 0.998882, 0.998643, 0.998384, 0.998105,
                  0.997807, 0.997488, 0.997150, 0.996792, 0.996414, 0.996017, 0.995600, 0.995163, 0.994707, 0.994231,
                  0.993735, 0.993220, 0.992686, 0.992131, 0.991558, 0.990965, 0.990353, 0.989721, 0.989070, 0.988400,
@@ -823,8 +824,8 @@ def prediction_error_distribution():
             for line in lines:
                 line = line.strip()
                 if line.startswith('#') or line == '': continue
-                x = float(line)
-                x_arr.append(x)
+                f_tmp = float(line)
+                x_arr.append(f_tmp)
             # for
         # with
         return x_arr
@@ -844,7 +845,7 @@ def prediction_error_distribution():
         plt.ylabel("Frequency", fontsize=28)
         plt.legend(fontsize=25, loc='upper left')
 
-    ts_all = [0, 99, 199, 299, 399, 499, 599, 699, 799, 899, 999]
+    # ts_all = [0, 99, 199, 299, 399, 499, 599, 699, 799, 899, 999]
     ts_list_list = [
         [0, 99, 199],
         [399, 499, 599],
@@ -916,6 +917,83 @@ def ablation_ddim():
     lambda_str = '1E08'
     draw_fig(fid_snr_arr, fid_qua_arr, fid_uni_arr, lambda_str)
 
+def dual_loss_reverse_time_ode_gradient():
+    def dm_grad_fn(x_0, epsilon_t, t):
+        grad = -(9.95 * t + 0.05) * math.exp(-4.975 * t * t - 0.05 * t) * x_0
+        exp2 = math.exp(-9.95 * t * t - 0.1 * t)
+        grad += (9.95 * t + 0.05) * exp2 / math.sqrt(1 - exp2) * epsilon_t
+        return grad
+
+    ts_arr = list(range(1, 1000, 1)) # todo: change step back.
+    ts_arr = [step / 1000 for step in ts_arr] # 0.01 ~ 0.999
+    ep_arr = [0.6, 0.0, -0.6]   # epsilon_t array
+    x0_arr = [0.7, 0.1, -0.5]   # x_0 array
+    fig = plt.figure(figsize=(16, 8))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.tick_params('both', labelsize=20)
+    line_arr = []
+    for ep, l_stype in zip(ep_arr, ['-', '--', ':']):
+        for x0, l_color in zip(x0_arr, ['r', 'g', 'b']):
+            grad_arr = []
+            for ts in ts_arr:
+                gr = dm_grad_fn(x0, ep, ts)
+                grad_arr.append(gr)
+            # for
+            lbl = f"$\\epsilon_t$:{ep}, $x_0$:{x0}"
+            line, = ax.plot(ts_arr, grad_arr, label=lbl, linestyle=l_stype, color=l_color)
+            line_arr.append(line)
+        # for
+    # for
+    plt.gca().invert_xaxis() # reverse time ODE. So reverse X axis.
+    legend1 = ax.legend(handles=line_arr[:3], fontsize=24, loc='upper left') # multiple legend
+    plt.gca().add_artist(legend1)
+    legend2 = ax.legend(handles=line_arr[3:6], fontsize=24, loc=(0.298, 0.707))
+    plt.gca().add_artist(legend2)
+    ax.legend(handles=line_arr[6:], fontsize=24, loc='lower left')
+
+    fig.supylabel(r'    $\frac{dx_t}{dt}$', fontsize=40, rotation=0)  # make it horizontal
+    fig.supxlabel(r'reverse-time timestep $t$', fontsize=30)
+    fig.suptitle("Diffusion model reverse-time ODE on specific points", fontsize=30)
+    # plt.show()
+    f_path = './configs/chart_dual_loss/fig_reverse_time_ode_grad_dm.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
+def dual_loss_negative_effect():
+    """there will be two 0.125 areas."""
+    x = np.linspace(0.0, 1, 1001)
+    x1 = np.linspace(0.0, 0.5, 501)
+    y11 = 1.0 * x1
+    y12 = [0.0] * len(x1)
+    x2 = np.linspace(0.5, 1.0, 501)
+    y21 = 1.0 * x2
+    y22 = [1.0] * len(x2)
+
+    # remove bounding box
+    plt.rc('axes.spines', **{'bottom': True, 'left': True, 'right': False, 'top': False})
+    fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+    ax.tick_params('both', labelsize=30)
+
+    for val in [0.0, 0.5, 1.0]:
+        lst = [val] * len(x)
+        ax.plot(x, lst, linestyle='--', color='0.8')  # y = val
+        ax.plot(lst, x, linestyle='--', color='0.8')  # x = val
+    ax.fill_between(x1, y11, y12)
+    ax.fill_between(x2, y21, y22)
+    ax.set_title('Probability of Negative Effect of Consistency Part', fontsize=35)
+    ax.set_xlabel(r"$a$", fontsize=40)
+    ax.set_ylabel(r"$b$    ", fontsize=40, rotation=0)
+    text_kwargs = dict(ha='center', va='center', fontsize=40, color='w')
+    plt.text(0.3, 0.1, r"$b < a < 0.5$", text_kwargs)
+    plt.text(0.7, 0.9, r"$b > a > 0.5$", text_kwargs)
+    fig.tight_layout()
+
+    f_path = './configs/chart_dual_loss/fig_negative_effect.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
 def main():
     """ entry point """
     # fig_trajectory_ori_vs_new()
@@ -928,8 +1006,10 @@ def main():
     # fid_compare_splitnm_imagenet()
     # fig_trajectory_compare_all3()
     # discrete_error_predict_error()
-    prediction_error_distribution()
+    # prediction_error_distribution()
     # ablation_ddim()
+    # dual_loss_reverse_time_ode_gradient()
+    dual_loss_negative_effect()
 
 if __name__ == '__main__':
     main()
