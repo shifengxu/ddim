@@ -70,12 +70,13 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
             num_workers=config.data.num_workers,
         )
         logging.info(f"test dataset and loader:")
-        logging.info(f"  root          : {test_dataset.root}")
-        logging.info(f"  len           : {len(test_dataset)}")
-        logging.info(f"  batch_cnt     : {len(test_loader)}")
-        logging.info(f"  batch_size    : {batch_size}")
-        logging.info(f"  shuffle       : False")
-        logging.info(f"  num_workers   : {config.data.num_workers}")
+        logging.info(f"  root       : {test_dataset.root}")
+        logging.info(f"  split      : {test_dataset.split}") if hasattr(test_dataset, 'split') else None
+        logging.info(f"  len        : {len(test_dataset)}")
+        logging.info(f"  batch_cnt  : {len(test_loader)}")
+        logging.info(f"  batch_size : {batch_size}")
+        logging.info(f"  shuffle    : False")
+        logging.info(f"  num_workers: {config.data.num_workers}")
         return train_loader, test_loader
 
     def init_models(self):
@@ -210,7 +211,7 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
             # self.scheduler.step()
             if epoch % args.save_ckpt_interval == 0 or epoch == e_cnt - 1:
                 self.save_model(epoch)
-            if test_interval > 0 and (epoch % test_interval == 0 or epoch == e_cnt - 1):
+            if epoch == e_cnt - 1 or (test_interval > 0 and epoch > 0 and epoch % test_interval == 0):
                 self.test_and_save_result(epoch, test_loader)
         # for epoch
         utils.output_list(loss_avg_arr, 'loss_avg')
@@ -348,7 +349,7 @@ class DiffusionTrainingRectifiedFlow(Diffusion):
             # ts_low is ground truth. So don't need to predict it.
             ts *= self.ts_stride
             ts += self.ts_low
-            logging.info(f"get_avg_loss() ri:{ri}, bi:{bi:2d}, ts.len:{len(ts)} => {ts[0]:4d}~{ts[-1]:4d}")
+            # logging.info(f"get_avg_loss() ri:{ri}, bi:{bi:2d}, ts.len:{len(ts)} => {ts[0]:4d}~{ts[-1]:4d}")
             ts_arr.append(ts)
             return ts
 

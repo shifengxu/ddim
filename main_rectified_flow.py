@@ -35,6 +35,8 @@ def parse_args_and_config():
     # data
     parser.add_argument("--data_dir", type=str, default="./exp")
     parser.add_argument("--batch_size", type=int, default=200, help="0 mean to use size from config file")
+    parser.add_argument("--train_ds_limit", type=int, default=0, help="training dataset limit")
+    parser.add_argument("--test_ds_limit", type=int, default=0, help="testing dataset limit")
 
     # model
     parser.add_argument('--ts_range', nargs='+', type=int, default=[0, 1000])
@@ -56,6 +58,7 @@ def parse_args_and_config():
     parser.add_argument("--sample_steps_arr", nargs='*', type=int, default=[])
     parser.add_argument("--sample_geometric_arr", nargs='*', type=float, default=[0.9])
     parser.add_argument("--sample_init_ts_arr", nargs='*', type=int, default=[940])
+    parser.add_argument("--fid_input1", type=str, default="./exp/datasets/celeba200K/50K")
 
     # training
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
@@ -143,8 +146,8 @@ def sample_all(args, config):
                     runner = DiffusionSamplingRectifiedFlow(args, config, device=config.device)
                     runner.sample(ts_geometric=geo, steps=steps, init_ts=init_ts)
                     del runner  # to save GPU memory
-                    fid = calc_fid(args.gpu_ids[0], True)
-                    msg = f"FID: {fid:7.3f}. steps:{steps}, init_ts:{init_ts},  geo:{geo}, order:{order}"
+                    fid = calc_fid(args.gpu_ids[0], True, input1=args.fid_input1)
+                    msg = f"FID: {fid:7.3f}. steps:{steps:2d}, init_ts:{init_ts:4d},  geo:{geo:.1f}, order:{order}"
                     res_arr.append(msg)
                     with open(result_file, 'w') as fptr: [fptr.write(f"{m}\n") for m in res_arr]
                     logging.info(msg)

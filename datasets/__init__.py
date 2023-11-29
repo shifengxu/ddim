@@ -142,6 +142,7 @@ def get_dataset(args, config):
             transform=transforms.Compose([transforms.ToTensor()]),
             check_integrity=False,
             download=True,
+            file_limit=args.test_ds_limit,
         )
 
     elif config.data.dataset == "LSUN":
