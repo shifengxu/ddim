@@ -92,6 +92,7 @@ def main():
     args, config = parse_args_and_config()
     logging.info(f"pid : {os.getpid()}")
     logging.info(f"cwd : {os.getcwd()}")
+    logging.info(f"host: {os.uname().nodename}")
     logging.info(f"args: {args}")
 
     try:

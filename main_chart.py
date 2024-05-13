@@ -2,6 +2,7 @@ import math
 import os.path
 
 import numpy as np
+import torch
 import torchvision as tv
 import matplotlib.pyplot as plt
 
@@ -918,17 +919,17 @@ def ablation_ddim():
     draw_fig(fid_snr_arr, fid_qua_arr, fid_uni_arr, lambda_str)
 
 def dual_loss_reverse_time_ode_gradient():
-    def dm_grad_fn(x_0, x_1, t):
+    def dm_grad_fn(x_0, epsilon, t):
         grad = -(9.95 * t + 0.05) * math.exp(-4.975 * t * t - 0.05 * t) * x_0
         exp2 = math.exp(-9.95 * t * t - 0.1 * t)
-        grad += (9.95 * t + 0.05) * exp2 / math.sqrt(1 - exp2) * x_1
+        grad += (9.95 * t + 0.05) * exp2 / math.sqrt(1 - exp2) * epsilon
         return grad
 
     ts_arr = list(range(1, 1000, 1)) # todo: change step back.
     ts_arr = [step / 1000 for step in ts_arr] # 0.01 ~ 0.999
-    ep_arr = [0.6, 0.0, -0.6]   # x_1 array
+    ep_arr = [0.6, 0.0, -0.6]   # epsilon array
     x0_arr = [0.7, 0.1, -0.5]   # x_0 array
-    fig = plt.figure(figsize=(16, 8))
+    fig = plt.figure(figsize=(20, 8))
     ax = fig.add_subplot(1, 1, 1)
     ax.tick_params('both', labelsize=20)
     line_arr = []
@@ -941,7 +942,7 @@ def dual_loss_reverse_time_ode_gradient():
                 gr = dm_grad_fn(x0, ep, ts)
                 grad_arr.append(gr)
             # for
-            lbl = f"$x_1$:{ep}, $x_0$:{x0}"
+            lbl = f"$\\epsilon$:{ep}, $x_0$:{x0}"
             line, = ax.plot(ts_arr, grad_arr, label=lbl, linestyle=l_stype, color=l_color)
             line_arr.append(line)
         # for
@@ -983,7 +984,7 @@ def dual_loss_negative_effect():
         ax.plot(lst, x, linestyle='--', color='0.8')  # x = val
     ax.fill_between(x1, y11, y12)
     ax.fill_between(x2, y21, y22)
-    ax.set_title('Probability of Negative Effect of Consistency Part', fontsize=35)
+    ax.set_title('Negative Effect of Consistency Term', fontsize=45)
     ax.set_xlabel(r"$a$", fontsize=40)
     ax.set_ylabel(r"$b$    ", fontsize=40, rotation=0)
     text_kwargs = dict(ha='center', va='center', fontsize=40, color='w')
@@ -996,7 +997,7 @@ def dual_loss_negative_effect():
     print(f"file saved: {f_path}")
     plt.close()
 
-def dual_loss__trajectory_diffusion_vs_rectified_flow():
+def dual_loss_trajectory_diffusion_vs_rectified_flow():
     x1k_df = [0.257086, 0.257072, 0.257058, 0.257044, 0.257030, 0.257017, 0.257004, 0.256990, 0.256977, 0.256963,
               0.256949, 0.256935, 0.256921, 0.256907, 0.256892, 0.256877, 0.256862, 0.256848, 0.256833, 0.256818,
               0.256802, 0.256787, 0.256772, 0.256757, 0.256742, 0.256727, 0.256711, 0.256696, 0.256680, 0.256663,
@@ -1204,7 +1205,7 @@ def dual_loss__trajectory_diffusion_vs_rectified_flow():
     y01_rf = [y1k_df[0], y1k_df[-1]]    # rectified flow
     fig = plt.figure(figsize=(16, 8))
     ax = fig.add_subplot(1, 1, 1)
-    ax.tick_params('both', labelsize=25)
+    ax.tick_params('both', labelsize=30)
     ax.plot(x1k_df, y1k_df, linestyle='-', color='r')
     ax.plot(x01_rf, y01_rf, linestyle='-', color='b', marker='o', ms=6)
     legends = ['Diffusion models trajectory', 'Rectified Flow trajectory']
@@ -1214,14 +1215,73 @@ def dual_loss__trajectory_diffusion_vs_rectified_flow():
     ax.set_ylabel(r"$x_t[b]$        ", fontsize=35, rotation=0)
     ax.set_ylim((0.1, 1.0))
     text_kwargs = dict(ha='center', va='center', fontsize=40, color='k')
-    plt.text(0.25, 0.94, r"$\pi_0$", text_kwargs)
-    plt.text(0.64, 0.27, r"$\pi_1$", text_kwargs)
+    # plt.text(0.25, 0.94, r"$\pi_1$", text_kwargs)
+    # plt.text(0.64, 0.27, r"$\pi_0$", text_kwargs)
     fig.tight_layout()
 
     f_path = './configs/chart_dual_loss/fig_trajectory1_diffusion_vs_rectified_flow.png'
     fig.savefig(f_path, bbox_inches='tight')
     print(f"file saved: {f_path}")
     plt.close()
+
+def dual_loss_merge_image_col_row():
+    root_dir = './output3_rf_celeba_sampling'
+    lambda_arr = ['0.0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']
+    # step_arr = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+    step_arr = ['1', '2', '3']
+    save_dir = os.path.join(root_dir, f"merged")
+    if not os.path.exists(save_dir):
+        print(f"mkdirs: {save_dir}")
+        os.makedirs(save_dir)
+    # first_dir = os.path.join(root_dir, f"gen_lambda{lambda_arr[0]}_step{step_arr[0]}")
+    # fname_list = os.listdir(first_dir)
+    # fname_list.sort()
+    fname_list = ['00026.png']
+    for fname in fname_list:
+        img_arr = []
+        for step in step_arr:
+            for lda in lambda_arr:
+                img_path = os.path.join(root_dir, f"gen_lambda{lda}_step{step}", fname)
+                # img = tv.io.read_image(img_path) # dimension [3, 64, 64]
+                # img = img.float()
+                # img /= 255.0
+                img = plt.imread(img_path) # dimension: [64, 64, 3]
+                img = torch.tensor(img)
+                img = img.permute(2, 0, 1)
+                img_arr.append(img)
+                tv.utils.save_image(img, os.path.join(save_dir, f"lambda{lda}_step{step}.png"))
+            # for
+        # for
+        save_img_path = os.path.join(save_dir, fname)
+        tv.utils.save_image(img_arr, save_img_path, nrow=len(lambda_arr))
+        print(f"save image: {save_img_path}")
+    # for fname
+
+def dual_loss_group_image():
+    import shutil
+    root_dir = './output3_rf_celeba_sampling'
+    lambda_arr = ['0.0', '0.7']
+    step_arr = ['3']
+    save_dir = os.path.join(root_dir, f"aaa_group")
+    if not os.path.exists(save_dir):
+        print(f"mkdirs: {save_dir}")
+        os.makedirs(save_dir)
+    fname_list = [
+        '00002', '00011', '00019', '00026', '00039',
+        '00041', '00042', '00043', '00051', '00059',
+        '00062', '00069', '00081', '00086', '00097',
+        '00103', '00107', '00109', '00116', '00117',
+    ]
+    for fname in fname_list:
+        for step in step_arr:
+            for lda in lambda_arr:
+                img_path = os.path.join(root_dir, f"gen_lambda{lda}_step{step}", f"{fname}.png")
+                save_img_path = os.path.join(save_dir, f"{fname}_lambda{lda}_step{step}.png")
+                shutil.copyfile(img_path, save_img_path)
+                print(f"save image: {save_img_path}")
+            # for
+        # for
+    # for fname
 
 def main():
     """ entry point """
@@ -1237,9 +1297,11 @@ def main():
     # discretization_error_vs_prediction_error()
     # prediction_error_distribution()
     # ablation_ddim()
-    dual_loss_reverse_time_ode_gradient()
+    # dual_loss_reverse_time_ode_gradient()
     # dual_loss_negative_effect()
-    # dual_loss__trajectory_diffusion_vs_rectified_flow()
+    # dual_loss_trajectory_diffusion_vs_rectified_flow()
+    # dual_loss_merge_image_col_row()
+    dual_loss_group_image()
 
 if __name__ == '__main__':
     main()
