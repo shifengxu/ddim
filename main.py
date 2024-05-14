@@ -82,6 +82,10 @@ def parse_args_and_config():
     parser.add_argument('--psample_type', type=str, default='from_x0', help='from_x0|from_gn')
     parser.add_argument("--fid", action="store_true", default=True)
     parser.add_argument("--sample_type", type=str, default="generalized", help="generalized | ddpm_noisy")
+    parser.add_argument("--sample_steps_arr", nargs='*', type=int, default=[500])
+    parser.add_argument("--sample_init_ts_arr", nargs='*', type=int, default=[0])
+    parser.add_argument("--fid_input1", type=str, default="cifar10-train")
+
 
     # training
     parser.add_argument('--ema_flag', type=str2bool, default=True, help='EMA flag')
@@ -93,6 +97,11 @@ def parse_args_and_config():
     parser.add_argument("--ni", action="store_true", default=True, help="No interaction")
     parser.add_argument("--use_pretrained", action="store_true")
     parser.add_argument("--sequence", action="store_true")
+    parser.add_argument("--loss_dual", type=str2bool, default=True, help="use dual loss")
+    parser.add_argument("--loss_lambda", type=float, default=0.1, help="lambda when dual loss")
+    parser.add_argument("--save_ckpt_path", type=str, default='./checkpoint_dual_loss/ckpt.pth')
+    parser.add_argument("--save_ckpt_interval", type=int, default=10, help='save checkpoint.')
+    parser.add_argument("--save_ckpt_eval", type=str2bool, default=True, help="Calculate FID/IS when save ckpt")
 
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)
@@ -212,18 +221,16 @@ def main():
     logging.info(f"pid : {os.getpid()}")
     logging.info(f"cwd : {os.getcwd()}")
     logging.info(f"args: {args}")
+    logging.info(f"todo: {args.todo} ===================================")
 
     try:
         if args.todo == 'psample':
-            logging.info(f"partial sample ===========================")
             runner = DiffusionPartialSampling(args, config, device=config.device)
             runner.run()
         elif args.todo == 'lsample':
-            logging.info(f"latent sample ===========================")
             runner = DiffusionLatentSampling(args, config, device=config.device)
             runner.sample()
         elif args.todo == 'sample':
-            logging.info(f"sample ===================================")
             if args.ts_type == 'continuous':
                 runner = DiffusionSamplingContinuous(args, config, device=config.device)
             elif args.ts_type == 'discrete':
@@ -232,11 +239,9 @@ def main():
                 raise ValueError(f"Unknown args.ts_type: {args.ts_type}")
             runner.sample()
         elif args.todo == 'test':
-            logging.info(f"test ===================================")
             runner = DiffusionTesting(args, config, device=config.device)
             runner.test()
         elif args.todo == 'train':
-            logging.info(f"train ===================================")
             if args.ts_type == 'continuous':
                 runner = DiffusionTrainingContinuous(args, config, device=config.device)
                 runner.train()
@@ -245,20 +250,20 @@ def main():
                 runner.train()
             else:
                 raise ValueError(f"Unknown args.ts_type: {args.ts_type}")
+        elif args.todo == 'train_dualloss':
+            from runners.diffusion_training_dual_loss import DiffusionTrainingDualLoss
+            runner = DiffusionTrainingDualLoss(args, config)
+            runner.train()
         elif args.todo == 'train0':
-            logging.info(f"train0 ===================================")
             runner = DiffusionTraining0(args, config, device=config.device)
             runner.train()
         elif args.todo == 'sample0':
-            logging.info(f"sample0 ===================================")
             runner = DiffusionSampling0(args, config, device=config.device)
             runner.sample()
         elif args.todo == 'train_fast':
-            logging.info(f"{args.todo} ===================================")
             runner = DiffusionTrainingFast(args, config, device=config.device)
             runner.train()
         elif args.todo == 'train_sam':
-            logging.info(f"todo: {args.todo} ===================================")
             runner = DiffusionTrainingSam(args, config, device=config.device)
             runner.train()
             # ckpt_path_arr = [
@@ -267,11 +272,9 @@ def main():
             # ]
             # runner.calc_loss_on_ckpt_by_testing_data(ckpt_path_arr)  # delete me
         elif args.todo == 'sample_fast':
-            logging.info(f"{args.todo} ===================================")
             runner = DiffusionSamplingFast(args, config, device=config.device)
             runner.sample()
         elif args.todo.startswith('lostats'):
-            logging.info(f"{args.todo} ===================================")
             runner = DiffusionLostats(args, config, device=config.device)
             runner.run()
         else:

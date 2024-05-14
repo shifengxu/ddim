@@ -8,7 +8,6 @@ from torchvision.datasets import CIFAR10, ImageFolder
 from datasets.ImageDataset import ImageDataset
 from datasets.celeba import CelebA
 from datasets.ffhq_latent import FFHQ_Latent
-from datasets.ffhq import FFHQ
 from datasets.lsun import LSUN
 from torch.utils.data import Subset
 import numpy as np
@@ -209,6 +208,7 @@ def get_dataset(args, config):
         )
 
     elif config.data.dataset == "FFHQ":
+        from datasets.ffhq import FFHQ
         if config.data.random_flip:
             dataset = FFHQ(
                 path=os.path.join(args.data_dir, "datasets", "FFHQ"),
