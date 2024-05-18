@@ -112,12 +112,10 @@ class DiffusionTrainingDualLoss(Diffusion):
         logging.info(f"  param size : {cnt} => {str_cnt}")
         logging.info(f"  ema_rate   : {self.ema_rate}")
         logging.info(f"  ema_start_epoch: {self.ema_start_epoch}")
-        logging.info(f"  stack_sz   : {self.model.stack_sz}") if model_name == 'ModelStack' else None
-        logging.info(f"  ts_cnt     : {self.model.ts_cnt}") if model_name == 'ModelStack' else None
-        logging.info(f"  brick_cvg  : {self.model.brick_cvg}") if model_name == 'ModelStack' else None
         logging.info(f"  model.to({self.device})")
         self.model.to(self.device)
         self.m_ema.to(self.device)
+
         self.optimizer = get_optimizer(self.config, self.model.parameters(), self.args.lr)
         logging.info(f"optimizer: {type(self.optimizer).__name__} ===================")
         logging.info(f"  lr: {self.args.lr}")
@@ -125,15 +123,21 @@ class DiffusionTrainingDualLoss(Diffusion):
         self.ema_helper = EMAHelper(mu=self.ema_rate)
         logging.info(f"  ema_helper: EMAHelper(mu={self.ema_rate})")
 
+        if args.resume_training:
+            cur_epoch = self.load_model()
+        else:
+            cur_epoch = 0
+
         logging.info(f"  torch.nn.DataParallel(device_ids={args.gpu_ids})")
         self.model = torch.nn.DataParallel(self.model, device_ids=args.gpu_ids)
         self.m_ema = torch.nn.DataParallel(self.m_ema, device_ids=args.gpu_ids)
         cudnn.benchmark = True
+        return cur_epoch
 
     def train(self):
         args, config = self.args, self.config
         train_loader, test_loader = self.get_data_loaders() # data loaders
-        self.init_models()             # models, optimizer and others
+        cur_epoch = self.init_models()             # models, optimizer and others
         log_itv  = args.log_interval
         save_itv = args.save_ckpt_interval
         save_eva = args.save_ckpt_eval
@@ -142,8 +146,8 @@ class DiffusionTrainingDualLoss(Diffusion):
         if ema_se == 0: ema_se = 1  # our epoch number starts from 1
         lr = args.lr
         e_cnt = args.n_epochs
-        b_cnt = len(train_loader)         # batch count
-        self.batch_total = e_cnt * b_cnt  # epoch * batch
+        b_cnt = len(train_loader)                     # batch count
+        self.batch_total = (e_cnt-cur_epoch) * b_cnt  # epoch * batch
         logging.info(f"DiffusionTrainingDualLoss::train()...")
         logging.info(f"log_itv  : {log_itv}")
         logging.info(f"save_itv : {save_itv}")
@@ -156,7 +160,7 @@ class DiffusionTrainingDualLoss(Diffusion):
         logging.info(f"l_lambda : {args.loss_lambda}")
         s_time = time.time()
         self.model.train()
-        for epoch in range(1, e_cnt+1):
+        for epoch in range(cur_epoch+1, e_cnt+1):
             msg = f"lr={lr:8.7f}; ema_start_epoch={ema_se}, ema_rate={ema_rate}"
             logging.info(f"Epoch {epoch}/{e_cnt} ---------- {msg}")
             if ema_se == epoch:
@@ -245,7 +249,7 @@ class DiffusionTrainingDualLoss(Diffusion):
         return (e - output).square().mean()
 
     def ema_sample_and_fid(self, epoch, apply_ema=True):
-        logging.info(f"get_ema_fid()")
+        logging.info(f"ema_sample_and_fid()")
         args, config = self.args, self.config
         if apply_ema:
             self.ema_helper.ema(self.m_ema)
@@ -348,18 +352,62 @@ class DiffusionTrainingDualLoss(Diffusion):
             tvu.save_image(x[i], img_path)
         logging.info(f"Saved {img_cnt}: {img_path}")
 
-    def load_model(self, states):
+    def sample_all(self):
+        args = self.args
+        logging.info(f"DiffusionTrainingDualLoss::sample_all()...")
+        sample_ckpt_dir = args.sample_ckpt_dir
+        if not sample_ckpt_dir:
+            raise ValueError(f"Invalid sample_ckpt_dir: {sample_ckpt_dir}.")
+        if not os.path.exists(sample_ckpt_dir):
+            raise ValueError(f"Dir not exist: {sample_ckpt_dir}")
+        f_list = os.listdir(sample_ckpt_dir)
+        f_list = [f for f in f_list if f.endswith('.pth')]
+        f_list.sort()
+        logging.info(f"Found {len(f_list)} ckpt in {sample_ckpt_dir}")
+        for f in f_list:
+            logging.info(f"  {f}")
+        steps_arr = args.sample_steps_arr
+        s_dir = args.sample_output_dir
+        init_ts = 1000
+        epoch = 0
+        s_fid1 = args.fid_input1
+        msg_arr = []
+        logging.info(f"steps_arr: {steps_arr}")
+        for f_name in f_list:
+            bn = os.path.basename(f_name)
+            f_path = os.path.join(sample_ckpt_dir, f_name)
+            self.m_ema = self.load_ckpt(f_path, eval_mode=True)
+            for steps in steps_arr:
+                self.sample(epoch, steps, init_ts, s_dir)
+                logging.info(f"fid_input1       : {s_fid1}")
+                logging.info(f"sample_output_dir: {s_dir}")
+                fid = calc_fid(args.gpu_ids[0], s_fid1, s_dir)
+                msg = f"{bn}_steps{steps:02d}\tFID{fid:7.3f}"
+                with open(f"sample_fid_{bn}_steps{steps:02d}.txt", 'w') as fptr:
+                    fptr.write(f"{msg}\n")
+                logging.info(msg)
+                logging.info("")    # empty line
+                msg_arr.append(msg)
+            # for
+        # for
+        with open(f"sample_fid_all.txt", 'w') as fptr:
+            [fptr.write(f"{m}\n") for m in msg_arr]
+
+    def load_model(self):
+        resume_ckpt = self.args.resume_ckpt
+        states = torch.load(resume_ckpt, map_location=self.device)
         self.model.load_state_dict(states['model'])
         op_st = states['optimizer']
         op_st["param_groups"][0]["eps"] = self.config.optim.eps
         self.optimizer.load_state_dict(op_st)
         self.ema_helper.load_state_dict(states['ema_helper'])
-        start_epoch = states['cur_epoch']
-        logging.info(f"  load_model_dict()...")
+        cur_epoch = states['cur_epoch']
+        logging.info(f"load_model()...")
+        logging.info(f"  loading: {resume_ckpt}")
         logging.info(f"  resume optimizer  : eps={op_st['param_groups'][0]['eps']}")
-        logging.info(f"  resume start_epoch: {start_epoch}")
+        logging.info(f"  resume cur_epoch  : {cur_epoch}")
         logging.info(f"  resume ema_helper : mu={self.ema_helper.mu:8.6f}")
-        return start_epoch
+        return cur_epoch
 
     def save_model(self, e_idx):
         real_model = self.model
@@ -389,7 +437,7 @@ class DiffusionTrainingDualLoss(Diffusion):
             log_info(f"  ema_helper: load from states[{k}]")
             eh.load_state_dict(states[k])
             log_info(f"  ema_helper: apply to model {type(model).__name__}")
-            eh.ema_to_module(model)
+            eh.ema(model)
 
         model = Model(self.config)
         log_info(f"load ckpt: {ckpt_path} . . .")

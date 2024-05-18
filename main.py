@@ -37,7 +37,6 @@ def parse_args_and_config():
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[3])
     parser.add_argument("--n_epochs", type=int, default=1000, help="0 mean epoch number from config file")
     parser.add_argument("--test_per_epoch", type=int, default=10, help='calc loss on test dataset. 0 means no calc.')
-    parser.add_argument("--save_per_epoch", type=int, default=10, help='save checkpoint.')
     parser.add_argument('--lr', type=float, default=0.0002, help="learning rate")
     parser.add_argument("--seed", type=int, default=1234, help="Random seed. 0 means ignore")
     parser.add_argument("--log_interval", type=int, default=10)
@@ -254,6 +253,10 @@ def main():
             from runners.diffusion_training_dual_loss import DiffusionTrainingDualLoss
             runner = DiffusionTrainingDualLoss(args, config)
             runner.train()
+        elif args.todo == 'sample_all':
+            from runners.diffusion_training_dual_loss import DiffusionTrainingDualLoss
+            runner = DiffusionTrainingDualLoss(args, config)
+            runner.sample_all()
         elif args.todo == 'train0':
             runner = DiffusionTraining0(args, config, device=config.device)
             runner.train()
