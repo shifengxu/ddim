@@ -34,7 +34,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.000001)
     parser.add_argument('--lp', type=float, default=0.01, help='learning_portion')
     parser.add_argument('--output_dir', type=str, default='./output7_vividvar')
-    parser.add_argument('--alpha_bar_dir', type=str, default='./exp/dpm_alphaBar')
+    parser.add_argument('--alpha_bar_dir', type=str, default='./output7_vividvar/alpha_bar_dir')
     parser.add_argument('--aa_low', type=float, default=0.0001, help="Alpha Accum lower bound")
     parser.add_argument("--aa_low_lambda", type=float, default=10000000)
     parser.add_argument("--weight_file", type=str, default='./output7_vividvar/res_mse_avg_list.txt')
@@ -62,7 +62,8 @@ def main():
     log_fn(f"cwd : {os.getcwd()}")
     log_fn(f"args: {args}")
     sb = ScheduleBatch(args)
-    sb.schedule_batch()
+    f_path = './output7_vividvar/alpha_bar_dir/dpm_alphaBar_steps20.txt'
+    sb.schedule_single(f_path, sb.lr, sb.lp)
     return 0
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import argparse
-
+import subprocess
+import re
 import torch
 import torch.nn as nn
 import math
@@ -60,6 +61,17 @@ def extract_ts_range(path):
 def log_info(*args):
     dtstr = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     print(f"[{dtstr}]", *args)
+
+def calc_fid(gpu, input1, input2, logger=log_info):
+    cmd = f"fidelity --gpu {gpu} --fid --input1 {input1} --input2 {input2} --silent"
+    logger(f"cmd: {cmd}")
+    cmd_arr = cmd.split(' ')
+    res = subprocess.run(cmd_arr, stdout=subprocess.PIPE)
+    output = str(res.stdout)
+    logger(f"out: {output}")  # frechet_inception_distance: 16.5485\n
+    m = re.search(r'frechet_inception_distance: (\d+\.\d+)', output)
+    fid = float(m.group(1))
+    return fid
 
 def get_time_ttl_and_eta(time_start, elapsed_iter, total_iter):
     """

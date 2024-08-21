@@ -13,7 +13,7 @@ class ScheduleBatch:
     def __init__(self, args):
         log_fn(f"ScheduleBatch() =======================================")
         self.wt_arr = ScheduleBase.load_floats(args.weight_file)
-        self.wt_pow = args.weight_power
+        self.wt_pow = 1.0
         w2s = lambda arr: " ".join([f"{w:10.5f}" for w in arr])
         if self.wt_pow != 1.0:
             log_fn(f"  wt_pow        : {self.wt_pow}")

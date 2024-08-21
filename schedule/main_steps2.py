@@ -6,7 +6,6 @@ import sys
 import matplotlib.pyplot as plt
 from torch.backends import cudnn
 from base import *
-from var_simulator import VarSimulator
 from var_simulator2 import VarSimulator2
 
 log_fn = utils.log_info
@@ -61,7 +60,6 @@ def main():
     log_fn(f"cwd : {os.getcwd()}")
     log_fn(f"args: {args}")
     var_arr = ScheduleBase.load_floats(args.weight_file)
-    # vs = VarSimulator(args.beta_schedule, var_arr, deg=128)
     vs = VarSimulator2(args.beta_schedule, var_arr)
     save_vs_plot(args, vs, var_arr)
     vs.to(args.device)

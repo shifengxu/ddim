@@ -41,7 +41,7 @@ def fig_trajectory_ori_vs_new():
     ax.plot([0.48], [0.815], 'o', ms=10, color='blue')
     ax.text(0.5, 0.8, ': original trajectory', size=25)
     ax.plot([0.48], [0.715], '*', ms=16, color='red')
-    ax.text(0.5, 0.7, ': improved trajectory', size=25)
+    ax.text(0.5, 0.7, ': optimized trajectory', size=25)
     ax.text(0.0, -0.06, r"$0$", size=25, transform=ax.transAxes)
     ax.text(0.97, -0.06, r"$T$", size=25, transform=ax.transAxes)
     fig.tight_layout()
@@ -1775,12 +1775,12 @@ def aaai_ablation_ddim():
     fid_snr_arr = [21.087, 18.822, 16.812, 14.250, 13.359, 13.385, 13.126, 13.509, 13.731]
     fid_qua_arr = [14.008, 13.910, 12.684, 12.496, 13.295, 13.333, 13.641, 14.862, 14.459]
     fid_uni_arr = [16.834, 14.241, 12.637, 11.856, 13.157, 14.539, 15.074, 15.073, 15.205]
-    lambda_str = '1E07'
+    lambda_str = '1E04'
     draw_fig(fid_snr_arr, fid_qua_arr, fid_uni_arr, lambda_str)
     fid_snr_arr = [21.087, 18.517, 15.433, 14.332, 14.606, 14.664, 14.861, 14.449, 14.589]
     fid_qua_arr = [14.008, 13.761, 12.163, 11.922, 11.620, 11.724, 11.841, 11.813, 11.799]
     fid_uni_arr = [16.834, 14.224, 12.705, 16.059, 18.232, 19.020, 20.095, 19.801, 18.949]
-    lambda_str = '1E08'
+    lambda_str = '1E05'
     draw_fig(fid_snr_arr, fid_qua_arr, fid_uni_arr, lambda_str)
 
 def aaai_alpha_and_learning_portion():
@@ -1810,9 +1810,111 @@ def aaai_alpha_and_learning_portion():
     print(f"file saved: {f_path}")
     plt.close()
 
+def aaai_calc_cpe_vs_fid():
+    """
+    AAAI2025 paper. Calculate cumulative-prediction-error
+    """
+    fig_size = (10, 8)
+    tick_size = 25
+    legend_size = 25
+    xy_label_size = 30
+    title_size = 35
+
+    steps = ['4', '6', '8', '10', '12', '15', '20', '30', '40', '50', '60']
+    ignore_part = 2 # from 4 to 6 to 8 steps, the CPE increases. So ignore the first two elements.
+    steps = steps[ignore_part:]
+
+    cpe_old = [0.307016, 0.336888, 0.340091, 0.327074, 0.309525,
+               0.283655, 0.245825, 0.188796, 0.153664, 0.128084, 0.109754]
+    cpe_new = [0.246888, 0.218599, 0.199007, 0.191229, 0.179242,
+               0.161496, 0.137091, 0.101494, 0.120442, 0.102084, 0.087668]
+    cpe_old = cpe_old[ignore_part:]
+    cpe_new = cpe_new[ignore_part:]
+    fig = plt.figure(figsize=fig_size)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.tick_params('both', labelsize=tick_size)
+    ax.plot(steps, cpe_old, linestyle='--', color='c', marker='o', label="Original trajectory")
+    ax.plot(steps, cpe_new, linestyle='--', color='r', marker='s', label="Optimized trajectory")
+    ax.legend(fontsize=legend_size, loc='upper right')
+    ax.set_xlabel('number of sampling steps', fontsize=xy_label_size)
+    ax.set_ylabel('CPE      ', fontsize=xy_label_size, rotation=0)
+    ax.set_title(r"CIFAR10", fontsize=title_size)
+    f_path = './configs/chart_aaai2025/fig_sup_cf_cpe_cifar10.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
+    fid_old = [48.68, 27.53, 18.71, 14.42, 12.11, 10.02, 8.28, 6.63, 5.86, 5.48, 5.25]
+    fid_new = [43.21, 23.81, 16.41, 12.79, 10.79,  8.96, 7.55, 6.33, 5.71, 5.37, 5.19]
+    fid_old = fid_old[ignore_part:]
+    fid_new = fid_new[ignore_part:]
+    fig = plt.figure(figsize=fig_size)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.tick_params('both', labelsize=tick_size)
+    ax.plot(steps, fid_old, linestyle='--', color='c', marker='o', label="Original trajectory")
+    ax.plot(steps, fid_new, linestyle='--', color='r', marker='s', label="Optimized trajectory")
+    ax.legend(fontsize=legend_size, loc='upper right')
+    ax.set_xlabel('number of sampling steps', fontsize=xy_label_size)
+    ax.set_ylabel('FID      ', fontsize=xy_label_size, rotation=0)
+    ax.set_title(r"CIFAR10", fontsize=title_size)
+    f_path = './configs/chart_aaai2025/fig_sup_cf_fid_cifar10.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
+    mse_old = [0.003597, 0.002233, 0.001566, 0.001152, 0.000874,
+               0.000636, 0.000351, 0.000177, 0.000106, 0.000067, 0.000046]
+    mse_new = [0.003186, 0.001864, 0.001328, 0.001021, 0.000803,
+               0.000603, 0.000383, 0.000255, 0.000094, 0.000064, 0.000049]
+    mse_old = mse_old[ignore_part:]
+    mse_new = mse_new[ignore_part:]
+    fig = plt.figure(figsize=fig_size)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.tick_params('both', labelsize=tick_size)
+    ax.plot(steps, mse_old, linestyle='--', color='c', marker='o', label="Original trajectory")
+    ax.plot(steps, mse_new, linestyle='--', color='r', marker='s', label="Optimized trajectory")
+    ax.legend(fontsize=legend_size, loc='upper right')
+    ax.set_xlabel('number of sampling steps', fontsize=xy_label_size)
+    ax.set_ylabel('MSE      ', fontsize=xy_label_size, rotation=0)
+    ax.set_title(r"CIFAR10", fontsize=title_size)
+    f_path = './configs/chart_aaai2025/fig_sup_cf_mse_cifar10.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
+def aaai_calc_cpe_original_trend():
+    """
+    AAAI2025 paper. Calculate cumulative-prediction-error
+    """
+    fig_size = (16, 8)
+    tick_size = 25
+    legend_size = 22
+    xy_label_size = 30
+    title_size = 35
+
+    steps = [4, 6, 8, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+
+    cpe_old = [0.307016, 0.336888, 0.340091, 0.327074, 0.283655,
+               0.245825, 0.188796, 0.153664, 0.128084, 0.109754,
+               0.095985, 0.085507, 0.077053, 0.070360, 0.037039,
+               0.025406, 0.019536, 0.015222, 0.013713, 0.012195,
+               0.010671, 0.009157, 0.007734]
+    fig = plt.figure(figsize=fig_size)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.tick_params('both', labelsize=tick_size)
+    ax.plot(steps, cpe_old, linestyle='--', color='r', marker='o', label="Original trajectory")
+    ax.legend(fontsize=legend_size, loc='upper right')
+    ax.set_xlabel('step count', fontsize=xy_label_size)
+    ax.set_ylabel('CPE      ', fontsize=xy_label_size, rotation=0)
+    ax.set_title(r"CIFAR10", fontsize=title_size)
+    f_path = './configs/chart_aaai2025/fig_sup_cpe_ori_cifar10.png'
+    fig.savefig(f_path, bbox_inches='tight')
+    print(f"file saved: {f_path}")
+    plt.close()
+
 def main():
     """ entry point """
-    fig_trajectory_ori_vs_new()
+    # fig_trajectory_ori_vs_new()
     # merge_image()
     # mse_error_vs_alpha_bar()
     # fid_compare_ddim_cifar10()
@@ -1834,6 +1936,8 @@ def main():
     # aaai_prediction_error_distribution()
     # aaai_ablation_ddim()
     # aaai_alpha_and_learning_portion()
+    aaai_calc_cpe_vs_fid()
+    # aaai_calc_cpe_original_trend()
 
 if __name__ == '__main__':
     main()

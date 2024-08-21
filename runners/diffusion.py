@@ -92,7 +92,7 @@ class Diffusion(object):
         self.ab_array = self.alphas_cumprod.reshape((1, -1))
         self.aq_array = self.alphas_cumproq.reshape((1, -1))
         ts_range = args.ts_range
-        if len(ts_range) == 0:
+        if ts_range is None or len(ts_range) == 0:
             ts_range = [0, self.num_timesteps]
         self.ts_low = ts_range[0]   # timestep low bound, inclusive
         self.ts_high = ts_range[1]  # timestep high bound, exclusive
