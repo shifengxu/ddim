@@ -113,6 +113,10 @@ def main():
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionDpmSolver(args, config, device=config.device)
             runner.sample_all_scheduled()
+        elif args.todo == 'sample_ori_sch':
+            from runners.diffusion_dpm_solver_predefined_trajectory import DiffusionDpmSolverPredefinedTrajectory
+            runner = DiffusionDpmSolverPredefinedTrajectory(args, config, device=config.device)
+            runner.sample_original_and_scheduled()
         elif args.todo == 'alpha_bar_all':
             logging.info(f"{args.todo} ===================================")
             runner = DiffusionDpmSolver(args, config, device=config.device)

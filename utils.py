@@ -73,6 +73,22 @@ def calc_fid(gpu, input1, input2, logger=log_info):
     fid = float(m.group(1))
     return fid
 
+def calc_isc(gpu, input1, logger=log_info):
+    cmd = f"fidelity --gpu {gpu} --isc --input1 {input1} --silent"
+    # output sample:
+    # inception_score_mean: 9.340804
+    # inception_score_std: 0.1443641
+    logger(f"cmd: {cmd}")
+    cmd_arr = cmd.split(' ')
+    res = subprocess.run(cmd_arr, stdout=subprocess.PIPE)
+    output = str(res.stdout)
+    logger(f"out: {output}")
+    m = re.search(r'inception_score_mean: (\d+\.\d+)', output)
+    mean = float(m.group(1))
+    m = re.search(r'inception_score_std: (\d+\.\d+)', output)
+    std = float(m.group(1))
+    return mean, std
+
 def get_time_ttl_and_eta(time_start, elapsed_iter, total_iter):
     """
     Get estimated total time and ETA time.
