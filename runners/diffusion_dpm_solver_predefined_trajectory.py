@@ -102,16 +102,21 @@ class DiffusionDpmSolverPredefinedTrajectory(Diffusion):
             line = line.strip()
             if line == '':
                 continue
-            if line == '# Old alpha_bar and its timestep':
+            if '# Old alpha_bar and its timestep' in line:
                 in_ori_ab = True
                 continue
             if in_ori_ab and line == '#':
                 in_ori_ab = False
                 continue
-            if in_ori_ab:   # "# 0.99973720    1"
+            if in_ori_ab:
+                # Old alpha_bar and its timestep, and estimated timestep in vs
+                # # 0.99930942  :    0.00495 :    3
+                #  --- or ---
+                # Old alpha_bar and its timestep
+                # # 0.99973720    1
                 line = line[1:].strip()
                 arr = line.split()
-                ab, ts = float(arr[0]), int(arr[1])
+                ab, ts = float(arr[0]), int(arr[-1])
                 ab_ori_arr.append(ab)
                 ts_ori_arr.append(ts)
                 continue
@@ -156,6 +161,7 @@ class DiffusionDpmSolverPredefinedTrajectory(Diffusion):
         [logging.info(f"           {f}") for f in file_list]
         file_list = [os.path.join(sch_dir, f) for f in file_list]
 
+        self.time_start = time.time()
         self.batch_cnt = 0
         rounds = args.sample_count // self.b_sz
         if rounds * self.b_sz > args.sample_count:
@@ -189,17 +195,20 @@ class DiffusionDpmSolverPredefinedTrajectory(Diffusion):
             ab_ori, ts_ori, ab_sch, ts_sch = self.load_trajectories(sch_file_path, meta_dict)
             noise_schedule = self.create_ns_by_aap_file(ab_ori, ts_ori, meta_dict)
             self.sample(noise_schedule=noise_schedule)
-            logging.info(f"{sch_file_path} Original ==> ISC calculating... {input1}")
+            logging.info(f"{sch_file_path} Original ==> calculating... {input1}")
             isc_mean, isc_std = utils.calc_isc(gpu, input1)
-            logging.info(f"{sch_file_path} Original ==> ISC: isc_mean:{isc_mean:9.6f}, isc_std:{isc_std:9.6f}")
-            append_res(f"isc_mean:{isc_mean:9.6f}, isc_std:{isc_std:9.6f}. {sch_file_path} Original")
+            fid = utils.calc_fid(gpu, 'cifar10-train', input1)
+            logging.info(f"{sch_file_path} Original  ==> FID:{fid:8.4f}, isc_mean:{isc_mean:9.6f}, std:{isc_std:9.6f}")
+            append_res(f"FID:{fid:8.4f}, isc_mean:{isc_mean:9.6f}, isc_std:{isc_std:9.6f}. Original . {sch_file_path}")
 
             noise_schedule = self.create_ns_by_aap_file(ab_sch, ts_sch, meta_dict)
             self.sample(noise_schedule=noise_schedule)
-            logging.info(f"{sch_file_path} Scheduled ==> ISC calculating... {input1}")
+            logging.info(f"{sch_file_path} Scheduled ==> calculating... {input1}")
             isc_mean, isc_std = utils.calc_isc(gpu, input1)
-            logging.info(f"{sch_file_path} Scheduled ==> ISC: isc_mean:{isc_mean:9.6f}, isc_std:{isc_std:9.6f}")
-            append_res(f"isc_mean:{isc_mean:9.6f}, isc_std:{isc_std:9.6f}. {sch_file_path} Scheduled")
+            fid = utils.calc_fid(gpu, 'cifar10-train', input1)
+            logging.info(f"{sch_file_path} Scheduled ==> FID:{fid:8.4f}, isc_mean:{isc_mean:9.6f}, std:{isc_std:9.6f}")
+            append_res(f"FID:{fid:8.4f}, isc_mean:{isc_mean:9.6f}, isc_std:{isc_std:9.6f}. Scheduled. {sch_file_path}")
+            logging.info("") # an empty line in log file
         # for
         logging.info(f"DiffusionDpmSolverPredefinedTrajectory::sample_original_and_scheduled()...Done")
 
@@ -267,7 +276,6 @@ class DiffusionDpmSolverPredefinedTrajectory(Diffusion):
             torch.cuda.manual_seed_all(seed)
         logging.info(f"  final seed: torch.initial_seed(): {torch.initial_seed()}")
 
-        self.time_start = time.time()
         d = config.data
         dpm_solver = self.create_dpm_solver(model, noise_schedule)
         with torch.no_grad():
