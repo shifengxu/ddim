@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 
 
 class ChartFidCompare:
@@ -22,19 +23,17 @@ class ChartFidCompare:
         axs = [ax1, ax2, ax3]
         fid_arr = [[fid_log, fid_lo2], [fid_qua, fid_qu2], [fid_uni, fid_un2]]
         lbl_arr = [[s, f"{s}+VRG"] for s in ['logSNR', 'quadratic', 'uniform']]
-        ylb_arr = [r"FID      ", '', '']  # y label on the left
-        xlb_arr = ['', r"step count", '']  # x label in the middle
-        for ax, fids, lbs, ylb, xlb in zip(axs, fid_arr, lbl_arr, ylb_arr, xlb_arr):
-            ax.set_ylabel(ylb, fontsize=self.xy_label_size, rotation=0)  # make it horizontal
-            ax.set_xlabel(xlb, fontsize=self.xy_label_size)
+        for ax, fids, lbs in zip(axs, fid_arr, lbl_arr):
             ax.tick_params('both', labelsize=20)
             ax.plot(steps, fids[0], linestyle='-', color='c', marker='o', label=lbs[0])
             ax.plot(steps, fids[1], linestyle='-', color='r', marker='s', label=lbs[1])
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
             ax.legend(fontsize=18, loc='upper right')
         # for
-        fig.suptitle("Compare with DDIM on CIFAR10", fontsize=30)
-        plt.show()
-        f_path = './configs/chart/fid_ddim_cifar10.png'
+        fig.suptitle("Comparison with DDIM on CIFAR10", fontsize=30)
+        fig.supxlabel("number of sampling steps", fontsize=self.xy_label_size, y=-0.03)
+        fig.supylabel("FID", fontsize=self.xy_label_size, rotation=0, x=0.04)
+        f_path = './configs/chart_icme2025/fig_fid_ddim_cifar10.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()
@@ -56,19 +55,17 @@ class ChartFidCompare:
         axs = [ax1, ax2, ax3]
         fid_arr = [[fid_log, fid_lo2], [fid_qua, fid_qu2], [fid_uni, fid_un2]]
         lbl_arr = [[s, f"{s}+VRG"] for s in ['logSNR', 'quadratic', 'uniform']]
-        ylb_arr = [r"FID      ", '', '']  # y label on the left
-        xlb_arr = ['', r"step count", '']  # x label in the middle
-        for ax, fids, lbs, ylb, xlb in zip(axs, fid_arr, lbl_arr, ylb_arr, xlb_arr):
-            ax.set_ylabel(ylb, fontsize=self.xy_label_size, rotation=0)  # make it horizontal
-            ax.set_xlabel(xlb, fontsize=self.xy_label_size)
+        for ax, fids, lbs in zip(axs, fid_arr, lbl_arr):
             ax.tick_params('both', labelsize=20)
             ax.plot(steps, fids[0], linestyle='-', color='c', marker='o', label=lbs[0])
             ax.plot(steps, fids[1], linestyle='-', color='r', marker='s', label=lbs[1])
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
             ax.legend(fontsize=18, loc='upper right')
         # for
-        fig.suptitle("Compare with DDIM on LSUN-bedroom", fontsize=30)
-        plt.show()
-        f_path = './configs/chart/fid_ddim_bedroom.png'
+        fig.suptitle("Comparison with DDIM on LSUN-Bedroom", fontsize=30)
+        fig.supxlabel("number of sampling steps", fontsize=self.xy_label_size, y=-0.03)
+        fig.supylabel("FID", fontsize=self.xy_label_size, rotation=0, x=0.04)
+        f_path = './configs/chart_icme2025/fig_fid_ddim_bedroom.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()
@@ -90,19 +87,52 @@ class ChartFidCompare:
         axs = [ax1, ax2, ax3]
         fid_arr = [[fid_log, fid_lo2], [fid_qua, fid_qu2], [fid_uni, fid_un2]]
         lbl_arr = [[s, f"{s}+VRG"] for s in ['logSNR', 'quadratic', 'uniform']]
-        ylb_arr = [r"FID      ", '', '']  # y label on the left
-        xlb_arr = ['', r"step count", '']  # x label in the middle
-        for ax, fids, lbs, ylb, xlb in zip(axs, fid_arr, lbl_arr, ylb_arr, xlb_arr):
-            ax.set_ylabel(ylb, fontsize=self.xy_label_size, rotation=0)  # make it horizontal
-            ax.set_xlabel(xlb, fontsize=self.xy_label_size)
+        for ax, fids, lbs in zip(axs, fid_arr, lbl_arr):
             ax.tick_params('both', labelsize=20)
             ax.plot(steps, fids[0], linestyle='-', color='c', marker='o', label=lbs[0])
             ax.plot(steps, fids[1], linestyle='-', color='r', marker='s', label=lbs[1])
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
             ax.legend(fontsize=18, loc='upper right')
         # for
-        fig.suptitle("Compare with DDIM on CelebA", fontsize=30)
-        plt.show()
-        f_path = './configs/chart/fid_ddim_celeba.png'
+        fig.suptitle("Comparison with DDIM on CelebA", fontsize=30)
+        fig.supxlabel("number of sampling steps", fontsize=self.xy_label_size, y=-0.03)
+        fig.supylabel("FID", fontsize=self.xy_label_size, rotation=0, x=0.04)
+        f_path = './configs/chart_icme2025/fig_fid_ddim_celeba.png'
+        fig.savefig(f_path, bbox_inches='tight')
+        print(f"file saved: {f_path}")
+        plt.close()
+
+    def run_ddim_cifar10_bedroom_celeba(self):
+        fid_log = [21.1, 12.7, 9.6, 8.0, 5.5, 4.7]  # CIFAR10: logSNR
+        fid_lo2 = [15.2, 9.2, 7.4, 7.2, 4.7, 4.1]   # CIFAR10: logSNR + VRG
+        fid_uni = [28.9, 19.4, 14.5]                # CelebA : quadratic
+        fid_un2 = [27.0, 16.2, 11.9]                # CelebA : quadratic + VRG
+        fid_qua = [20.1, 13.4, 11.0]                # Bedroom: uniform
+        fid_qu2 = [18.6, 12.2, 10.7]                # Bedroom: uniform + VRG
+        steps_arr = [
+            ['10', '15', '20', '25', '50', '100'],
+            ['10', '15', '20'],
+            ['10', '15', '20'],
+        ]
+        fig = plt.figure(figsize=(16, 5))
+        ax1 = fig.add_subplot(1, 3, 1)
+        ax2 = fig.add_subplot(1, 3, 2)
+        ax3 = fig.add_subplot(1, 3, 3)
+        axs = [ax1, ax2, ax3]
+        fid_arr = [[fid_log, fid_lo2], [fid_qua, fid_qu2], [fid_uni, fid_un2]]
+        lbl_arr = [[s, f"{s}+VRG"] for s in ['logSNR', 'quadratic', 'uniform']]
+        title_arr = ["CIFAR10", "CelebA", "LSUN-Bedroom"]
+        for ax, steps, fids, lbs, ttl in zip(axs, steps_arr, fid_arr, lbl_arr, title_arr):
+            ax.tick_params('both', labelsize=20)
+            ax.plot(steps, fids[0], linestyle='-', color='c', marker='o', label=lbs[0])
+            ax.plot(steps, fids[1], linestyle='-', color='r', marker='s', label=lbs[1])
+            ax.set_title(ttl, fontsize=self.xy_label_size)
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
+            ax.legend(fontsize=18, loc='upper right')
+        # for
+        fig.supxlabel("number of sampling steps", fontsize=self.xy_label_size, y=-0.03)
+        fig.supylabel("FID", fontsize=self.xy_label_size, rotation=0, x=0.06)
+        f_path = './configs/chart_icme2025/fig_fid_ddim_cifar10_bedroom_celeba.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()

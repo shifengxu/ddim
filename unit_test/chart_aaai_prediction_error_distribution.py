@@ -33,7 +33,7 @@ class ChartAaaiPredictionErrorDistribution:
             [399, 499, 599],
         ]
         for ts_list in ts_list_list:
-            fig = plt.figure(figsize=(12, 8))
+            fig = plt.figure(figsize=(12, 5))
             # ax = fig.add_subplot(1, 1, 1)
             bins = predefined_bins
             for ts in ts_list:
@@ -47,7 +47,7 @@ class ChartAaaiPredictionErrorDistribution:
             plt.xlabel(r"$\epsilon_{\theta}^{(t)}[d] - \epsilon^{(t)}[d]$", fontsize=xy_label_size)
             plt.ylabel("Frequency", fontsize=xy_label_size)
             plt.legend(fontsize=legend_size, loc='upper right')
-            f_path = f"./configs/chart_aaai2025/fig_delta_distribution_{ts_list[0]:03d}-{ts_list[-1]:03d}.png"
+            f_path = f"./configs/chart_icme2025/fig_delta_distribution_{ts_list[0]:03d}-{ts_list[-1]:03d}.png"
             fig.savefig(f_path, bbox_inches='tight')
             print(f"saved file: {f_path}")
             plt.close()

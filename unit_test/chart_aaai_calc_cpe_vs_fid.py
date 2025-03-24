@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 class ChartAaaiCalcCepVsFid:
     def __init__(self):
-        self.fig_size = (10, 8)
+        self.fig_size = (10, 4)
 
     def run(self):
         """
@@ -11,7 +11,7 @@ class ChartAaaiCalcCepVsFid:
         """
         fig_size = self.fig_size
         tick_size = 25
-        legend_size = 25
+        legend_size = 20
         xy_label_size = 30
         title_size = 35
 
@@ -33,8 +33,8 @@ class ChartAaaiCalcCepVsFid:
         ax.legend(fontsize=legend_size, loc='upper right')
         ax.set_xlabel('number of sampling steps', fontsize=xy_label_size)
         ax.set_ylabel('CPE      ', fontsize=xy_label_size, rotation=0)
-        ax.set_title(r"CIFAR10", fontsize=title_size)
-        f_path = './configs/chart_aaai2025/fig_sup_cf_cpe_cifar10.png'
+        # ax.set_title(r"CIFAR10", fontsize=title_size)
+        f_path = './configs/chart_icme2025/fig_sup_cf_cpe_cifar10.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()
@@ -51,8 +51,8 @@ class ChartAaaiCalcCepVsFid:
         ax.legend(fontsize=legend_size, loc='upper right')
         ax.set_xlabel('number of sampling steps', fontsize=xy_label_size)
         ax.set_ylabel('FID      ', fontsize=xy_label_size, rotation=0)
-        ax.set_title(r"CIFAR10", fontsize=title_size)
-        f_path = './configs/chart_aaai2025/fig_sup_cf_fid_cifar10.png'
+        # ax.set_title(r"CIFAR10", fontsize=title_size)
+        f_path = './configs/chart_icme2025/fig_sup_cf_fid_cifar10.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()

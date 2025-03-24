@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 class ChartAaaiFidCompareDeisPndmSplitnm:
     def __init__(self):
-        self.fig_size = (6, 8)
+        self.fig_size = (6, 6)
 
     def run(self):
         """AAAI2025 paper"""
@@ -26,10 +26,10 @@ class ChartAaaiFidCompareDeisPndmSplitnm:
         ax.plot(steps, fid_ab2_old, linestyle='--', color='c', marker='o', label="ab2")
         ax.plot(steps, fid_ab2_new, linestyle='--', color='r', marker='s', label="ab2 with VRG")
         ax.legend(fontsize=legend_size, loc='upper right')
-        ax.set_xlabel('step count', fontsize=xy_label_size)
-        ax.set_ylabel('FID      ', fontsize=xy_label_size, rotation=0)
+        ax.set_xlabel('sampling steps', fontsize=xy_label_size)
+        ax.set_ylabel('FID     ', fontsize=xy_label_size, rotation=0)
         ax.set_title(r"CIFAR10", fontsize=title_size)
-        f_path = './configs/chart_aaai2025/aaai_fid_deis_cifar10.png'
+        f_path = './configs/chart_icme2025/aaai_fid_deis_cifar10.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()
@@ -47,10 +47,10 @@ class ChartAaaiFidCompareDeisPndmSplitnm:
         ax.plot(steps, fid_f1, linestyle='--', color='c', marker='o', label="F-PNDM")
         ax.plot(steps, fid_f2, linestyle='--', color='r', marker='s', label="F-PNDM + VRG")
         ax.legend(fontsize=legend_size, loc='upper right')
-        ax.set_xlabel('step count', fontsize=xy_label_size)
-        ax.set_ylabel('FID  ', fontsize=xy_label_size, rotation=0)
+        ax.set_xlabel('sampling steps', fontsize=xy_label_size)
+        ax.set_ylabel('FID    ', fontsize=xy_label_size, rotation=0)
         ax.set_title("CIFAR10", fontsize=title_size)
-        f_path = './configs/chart_aaai2025/aaai_fid_pndm.png'
+        f_path = './configs/chart_icme2025/aaai_fid_pndm.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()
@@ -64,10 +64,10 @@ class ChartAaaiFidCompareDeisPndmSplitnm:
         ax.plot(steps, fid_c64_old, linestyle='-', color='c', marker='o', label="STSP")
         ax.plot(steps, fid_c64_new, linestyle='-', color='r', marker='s', label="STSP + VRG")
         ax.legend(fontsize=legend_size, loc='upper right')
-        ax.set_xlabel('step count', fontsize=xy_label_size)
+        ax.set_xlabel('sampling steps', fontsize=xy_label_size)
         ax.set_ylabel('FID  ', fontsize=xy_label_size, rotation=0)
         ax.set_title(r"ImageNet(64$\times$64)", fontsize=title_size)
-        f_path = './configs/chart_aaai2025/aaai_fid_splitnm_imagenet.png'
+        f_path = './configs/chart_icme2025/aaai_fid_splitnm_imagenet.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"file saved: {f_path}")
         plt.close()

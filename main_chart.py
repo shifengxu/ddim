@@ -172,6 +172,7 @@ def aaai_fid_compare_deis_pndm_splitnm():
 def aaai_mse_error_vs_alpha_bar():
     from unit_test.chart_aaai_mse_error_vs_alpha_bar import ChartAaaiMseErrorVsAlphaBar
     ChartAaaiMseErrorVsAlphaBar().run()
+    ChartAaaiMseErrorVsAlphaBar().run_bedroom()
 
 def aaai_prediction_error_distribution():
     from unit_test.chart_aaai_prediction_error_distribution import ChartAaaiPredictionErrorDistribution
@@ -191,7 +192,7 @@ def aaai_alpha_and_learning_portion():
     cnt = len(alpha_arr)
     a_str_arr = [rf"$\alpha_{{ {i} }}$" for i in range(1, 1+cnt)]
     l_ptn_arr = [0.1 for _ in range(1, 1+cnt)]  # learning portion
-    fig = plt.figure(figsize=(16, 8))
+    fig = plt.figure(figsize=(16, 5))
     ax = fig.add_subplot(1, 1, 1)
     ax.tick_params('both', labelsize=tick_size)
     ax.bar(a_str_arr, alpha_arr, width=0.4)
@@ -203,7 +204,7 @@ def aaai_alpha_and_learning_portion():
     label_arr = [r"$\alpha$ value", r"learning-portion $\gamma$"]
     ax.legend(label_arr, fontsize=legend_size)
 
-    f_path = f"./configs/chart_aaai2025/alpha_and_lp/fig_alpha_values_time_uniform.png"
+    f_path = f"./configs/chart_icme2025/alpha_and_lp/fig_alpha_values_time_uniform.png"
     fig.savefig(f_path, bbox_inches='tight')  #
     print(f"file saved: {f_path}")
     plt.close()
@@ -272,6 +273,12 @@ def main():
     # aaai_calc_cpe_vs_fid()
     # aaai_calc_cpe_original_trend()
     aaai_rebuttal_prediction_error_distribution_sd()
+
+    # from unit_test.chart_icme_isc_cifar10 import  ChartIcmeIscCifar10
+    # ChartIcmeIscCifar10().run()
+
+    # from unit_test.chart_fid_compare import ChartFidCompare
+    # ChartFidCompare().run_ddim_cifar10_bedroom_celeba()
 
 if __name__ == '__main__':
     main()

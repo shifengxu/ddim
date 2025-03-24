@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 class ChartFigTrajectoryCompareAll3:
     def __init__(self):
-        self.tick_size = 15
+        self.tick_size = 18
 
     def run(self):
         ab_log_ori = [0.999309, 0.995248, 0.968069, 0.814417, 0.388457, 0.084202, 0.013133, 0.001922, 0.000278,
@@ -133,36 +133,37 @@ class ChartFigTrajectoryCompareAll3:
         ttl_arr = ['logSNR', 'quadratic', 'uniform']
 
         tick_size = self.tick_size
-        legend_size = 15
-        xy_label_size = 20
-        title_size = 20
-        fig = plt.figure(figsize=(12, 7))
+        legend_size = 18
+        xy_label_size = 26
+        title_size = 25
+        fig = plt.figure(figsize=(12, 6))
         ax_arr = fig.add_subplot(311), fig.add_subplot(312), fig.add_subplot(313)
         for ax, ab_ori, ts_ori, ab_new, ts_new, ttl in zip(ax_arr, abo_arr, tso_arr, abn_arr, tsn_arr, ttl_arr):
             ax.tick_params(axis='y', labelsize=tick_size)
             ax.xaxis.set_ticklabels([])
             ax.set_xlim((0, 1.02))
             ax.set_ylim((-0.05, 1.05))
-            ax.plot(ts_ori, ab_ori, 'o', ms=6, color='b')
-            ax.plot(ts_new, ab_new, '*', ms=6, color='red')
+            ax.plot(ts_ori, ab_ori, 'o', ms=9, color='b')
+            ax.plot(ts_new, ab_new, '*', ms=9, color='r')
             ax.plot(ts_all, ab_all, '--', color='green', linewidth=1)
             # why duplicate: the ax legend only follow the plot order, but we want marker cover line.
-            ax.plot(ts_ori, ab_ori, 'o', ms=6, color='b')
-            ax.plot(ts_new, ab_new, '*', ms=6, color='red')
-            ax.legend(['Initial trajectory', 'Optimized trajectory'], fontsize=legend_size, loc='upper right')
-            ax.text(0.45, 0.9, ttl, size=title_size)
+            ax.plot(ts_ori, ab_ori, 'o', ms=9, color='b')
+            ax.plot(ts_new, ab_new, '*', ms=9, color='r')
+            if ttl == ttl_arr[0]: # only put legend on first sub-plot.
+                ax.legend(['Initial trajectory', 'Optimized trajectory'], fontsize=legend_size, loc='upper right')
+            ax.text(0.42, 0.8, ttl, size=title_size)
         # for
         fig.supylabel(r"$\bar{\alpha}$   ", fontsize=xy_label_size, rotation=0)  # make it horizontal
         fig.supxlabel(r"timestep $t$", fontsize=xy_label_size)
         fig.tight_layout()
         plt.text(0.00, -0.25, r"$0$", size=20)
         plt.text(0.99, -0.25, r"$T$", size=20)
-        f_path = './configs/chart_aaai2025/abc_o1_step10_all3/fig_abc_o1_s10_all3.png'
+        f_path = './configs/chart_icme2025/abc_o1_step10_all3/fig_abc_o1_s10_all3_zzz.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"Saved: {f_path}")
         plt.close()
 
-        fig = plt.figure(figsize=(6, 4))  # ------------------------- sup
+        fig = plt.figure(figsize=(3.8, 1.8))  # ------------------------- sup
         ax = fig.add_subplot(111)
         ab_log_ori = ab_log_ori[:3]
         ts_log_ori = ts_log_ori[:3]
@@ -172,22 +173,26 @@ class ChartFigTrajectoryCompareAll3:
         idx = 0
         while ab_all[idx] >= ab_last:
             idx += 1
-        ab_all = ab_all[:idx + 1]
-        ts_all = ts_all[:idx + 1]
+        ab_all = ab_all[:idx + 5]
+        ts_all = ts_all[:idx + 5]
+        ab_max = max(ab_log_ori[0], ab_log_new[0], ab_all[0])
+        ab_min = min(ab_log_ori[-1], ab_log_new[-1], ab_all[-1])
+        y_lim = (ab_min - 0.01, ab_max + 0.01)
         ab_log_ori = [f + 0.0004 for f in ab_log_ori]  # small adjustment based on observation
         ax.tick_params('y', labelsize=tick_size)
         ax.xaxis.set_ticklabels([])
-        ax.plot(ts_log_ori, ab_log_ori, 'o', ms=6, color='b')
-        ax.plot(ts_log_new, ab_log_new, '*', ms=6, color='red')
+        ax.plot(ts_log_ori, ab_log_ori, 'o', ms=9, color='b')
+        ax.plot(ts_log_new, ab_log_new, '*', ms=9, color='red')
         ax.plot(ts_all, ab_all, '--', color='green', linewidth=1)
         # why duplicate: the ax legend only follow the plot order, but we want marker cover line.
-        ax.plot(ts_log_ori, ab_log_ori, 'o', ms=6, color='b')
-        ax.plot(ts_log_new, ab_log_new, '*', ms=6, color='red')
+        ax.plot(ts_log_ori, ab_log_ori, 'o', ms=9, color='b')
+        ax.plot(ts_log_new, ab_log_new, '*', ms=9, color='red')
+        ax.set_ylim(y_lim)
         fig.supylabel(r"$\bar{\alpha}$", fontsize=xy_label_size, rotation=0)  # make it horizontal
         fig.supxlabel(r"timestep $t$", fontsize=xy_label_size)
         fig.tight_layout()
-        plt.text(0.028, -0.1, r"$0$", size=20, transform=ax.transAxes)
-        f_path = './configs/chart_aaai2025/abc_o1_step10_all3/fig_abc_o1_s10_all3_sup.png'
+        # plt.text(0.028, -0.1, r"$0$", size=20, transform=ax.transAxes)
+        f_path = './configs/chart_icme2025/abc_o1_step10_all3/fig_abc_o1_s10_all3_sup.png'
         fig.savefig(f_path, bbox_inches='tight')
         print(f"Saved: {f_path}")
         plt.close()
