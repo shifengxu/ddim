@@ -152,7 +152,7 @@ class ChartFigTrajectoryCompareAll3:
             ax.legend(['Initial trajectory', 'Optimized trajectory'], fontsize=legend_size, loc='upper right')
             ax.text(0.45, 0.9, ttl, size=title_size)
         # for
-        fig.supylabel(r"$\bar{\alpha}$", fontsize=xy_label_size, rotation=0)  # make it horizontal
+        fig.supylabel(r"$\bar{\alpha}$   ", fontsize=xy_label_size, rotation=0)  # make it horizontal
         fig.supxlabel(r"timestep $t$", fontsize=xy_label_size)
         fig.tight_layout()
         plt.text(0.00, -0.25, r"$0$", size=20)
